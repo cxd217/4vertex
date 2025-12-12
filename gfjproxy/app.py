@@ -63,7 +63,7 @@ hijack_loggers()
 PROJECT_ID = os.environ.get("PROJECT_ID")
 CREDENTIALS_JSON = os.environ.get("GOOGLE_CREDENTIALS")
 # 默认区域，你可以改为 us-west1 或 asia-east1
-VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1") 
+VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION", "global") 
 
 if CREDENTIALS_JSON:
     # 将环境变量里的 JSON 字符串写入临时文件，供 Google SDK 读取
