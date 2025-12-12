@@ -95,7 +95,7 @@ else:
 
 if isinstance(storage, RedisUserStorage):
     print(" * Using Redis user storage")
-elif isinstance(storage, LocalUserStorage) and DEVELOPMENT:
+elif isinstance(storage, LocalUserStorage):
     print(" * Using local user storage")
 else:
     print(" * ERROR: No user storage")
