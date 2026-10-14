@@ -90,7 +90,9 @@ Environment 中保留 `PROJECT_ID`、完整的 `GOOGLE_CREDENTIALS`、`VERTEX_LO
 不能更换原 `GFJPROXY_XUID_SECRET` 或 Redis，否则无法读到原用户设置。
 
 可选：把 `GFJPROXY_ACCESS_KEYS` 设置成你原来在 JanitorAI 使用的 Key，限制谁能使用你的 Vertex 代理；多人用逗号分隔。
-不设置时兼容旧版，接受任何非空 Key。JanitorAI 里的 Key 只标识用户，Google 凭证在服务端。
+不设置时兼容旧版，接受任何非空 Key；设置了该变量但 Value 为空时会拒绝请求并返回 503。
+请求会先校验口令，再检查消息结构、模型和参数，校验失败不会调用 Vertex。
+JanitorAI 的 API Key 填白名单中的口令；Google 凭证在服务端。
 
 确认 Render 连接的是合并后的默认分支。开启自动部署时会按服务设置触发；关闭时使用 Manual Deploy 部署最新提交。
 已有手动创建的服务不一定会读取仓库里的 `render.yaml`，因此请检查实际命令。
