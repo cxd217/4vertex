@@ -9,6 +9,7 @@
 - JanitorAI 连接测试、聊天、续写、草稿增强、自动摘要。
 - 原来的 `/`、`/chat/completions`、`/quiet/` 接口，以及 SSE 响应格式。
 - 新版 `//fixturns`、`//prefill_mode`、高级生成参数、搜索工具、预设和现有聊天命令。
+- 首次普通回复显示完整的中文功能说明，包含原成人／NSFW 预填充、所有命令和服务功能；`//banner` 可随时重看，`//help commands` 使用同一份说明。
 - `/health`、`/stats` 页面；Redis 用户设置和统计；冷却时间与带宽监测。
 - 兼容原来的 `PROJECT_ID`、`GOOGLE_CREDENTIALS`、`VERTEX_LOCATION`。
 
