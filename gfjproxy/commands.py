@@ -7,6 +7,7 @@ from functools import wraps
 from random import randint
 
 from ._globals import BANNER, BANNER_VERSION, PRESETS
+from .feature_guide import FEATURE_GUIDE
 from .utils import ResponseHelper
 
 ################################################################################
@@ -328,7 +329,7 @@ def dice_roll(args, user, jai_req, response):
     )
     if not match:
         return response.add_proxy_message(
-            f"Invalid dice syntax `{args}`\nUse the `//dice_help` command for more info."
+            f"Invalid dice syntax `{args}`\nUse the `//help dice` command for more info."
         )
 
     count = min(max(int(match.group(1) or "1", base=10), 1), 100)
@@ -421,68 +422,7 @@ def advset_top_p(args, user, jai_req, response):
 ################################################################################
 
 
-HELP_COMMANDS = """***
-You can include one or more commands in your messages, separated by spaces.
-You can turn on some commands and they will apply across all messages in all chats.
-Some commands can be called with `this` to make them only apply to the next message.
-Preset commands need to be called every time you want to use them.
-
-- `//aboutme`
-  Shows you info about your proxy usage and what commands you have turned on or off.
-
-- `//banner`
-  Shows you the banner, regardless of whether you have seen it before or if you use the `/quiet/` URL.
-
-- `//help advsettings|commands|dice|vertex`
-  Shows you info about specific topics or proxy features.
-
-- `//fixturns on|off|this`
-  Adds an empty user message to the end of the conversation, fixing the issues with models that can't take prefills right away.
-
-- `//noass on|off|this`
-  Coalesces the entire chat history into a single message, hopefully bypassing content filters. May break some models.
-
-- `//btrick on|off|this`
-  Uses U+2800 Braille Pattern Blank when talking to the AI to help bypass content filters.
-
-- `//ooctrick on|off|this`
-  Inserts two fake OOC messages into the chat when generating, hopefully fooling the content filters and bypassing them.
-
-- `//prefill on|off|this`
-  Adds a prefill/jailbreak to the chat. This could help prevent errors, but it is not guaranteed.
-
-- `//prefill_mode 0|1|2|3`
-  Selects what kind of prefill/jailbreak to use: classic (0), interaction config (1), starter (2), combined (3).
-
-- `//search on|off|this`
-  Enables the use of Google Search, allowing the model to look up any information relevant to the chat.
-
-- `//think on|off|this`
-  Tricks Gemini into doing its thinking inside the response to bypass content filters. *Note:* this might cause ᐸthinkᐳ/ᐸresponseᐳ to leak into the bot's messages.
-
-- `//think_text keep|remove`
-  Configures the proxy to either include the model's thinking in the response or remove it entirely.
-
-- `//nobot on|off|this`
-  Removes the bot's description from the chat, in case it contains ToS-breaking content. *Note:* use this only as a last resort. This will negatively impact your chat.
-
-- `//preset gigakostyl`
-  Adds a simple writing guideline for NSFW roleplay, plus "X-ray views" to sex scenes.
-
-- `//preset minipopka`
-  Adds a longer writing guideline to enhance narration and NSFW roleplay.
-
-- `//dice_roll [count]d(faces)[(p|m)(extra)]`
-- `//dice_char on|off|this`
-  Rolls dices using proxy-provided random numbers. See `//help dice` for more info.
-
-- `//advset_temperature on|off|this`
-- `//advset_frequency_penalty on|off|this`
-- `//advset_repetition_penalty on|off|this`
-- `//advset_top_k on|off|this`
-- `//advset_top_p on|off|this`
-  Controls whether to apply advanced settings to the model. See `//help advsettings` for more info.
-"""
+HELP_COMMANDS = "***\n" + FEATURE_GUIDE
 
 
 HELP_ADVSETTINGS = """***
@@ -491,7 +431,7 @@ HELP_ADVSETTINGS = """***
 The proxy supports passing advanced settings to Vertex AI to tweak how the AI writes.
 
 You can configure these in JanitorAI's Generation Settings.
-They must be set to a number greater than zero in JanitorAI to apply.
+Set valid nonzero numbers in JanitorAI to apply them; penalties can be negative.
 Most of these also require a specific command to be enabled in the proxy.
 
 ## **Temperature**
@@ -501,7 +441,7 @@ Controls how predictable the AI's word choises are.
 - Low temperature makes the AI prefer more common or likely words.
 - High temperature makes the AI to chose words more freely or randomly.
 
-Setting temperature to zero makes the AI to always try to the exact same response.
+The command requires a nonzero temperature value in this proxy.
 
 ## **Max Tokens**
 The proxy always ignores this setting.
