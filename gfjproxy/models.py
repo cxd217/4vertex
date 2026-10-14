@@ -2,14 +2,17 @@
 
 The name of some fields in here may not match with the source they are from."""
 
+import re
 from dataclasses import dataclass, field
 from json import loads
+
 from .commands import Command, parse_message, strip_message
+from .utils import comma_split
 
 ################################################################################
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, slots=True)
 class JaiMessage:
     """JanitorAI Message."""
 
@@ -26,10 +29,14 @@ class JaiMessage:
 
         jai_msg = JaiMessage()
 
-        if role := data.get("role"):
-            jai_msg.role = role
+        role = data.get("role", "user")
+        if role not in ("system", "user", "assistant"):
+            raise ValueError("Unsupported message role")
+        jai_msg.role = role
 
         if content := data.get("content"):
+            if not isinstance(content, str):
+                raise TypeError("Message content must be text")
             if role == "user":
                 jai_msg.commands, jai_msg.content = parse_message(content)
             else:
@@ -38,27 +45,46 @@ class JaiMessage:
         return jai_msg
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, slots=True)
 class JaiRequest:
     """JanitorAI Request."""
 
+    # Request body
     max_tokens: int = 0
+    messages: list[JaiMessage] = field(default_factory=list)
+    models: dict[str, str] = field(default_factory=dict)
+    stream: bool = False
+    temperature: float = 0
     frequency_penalty: float = 0.0
     repetition_penalty: float = 0.0
-    messages: list[JaiMessage] = field(default_factory=list)
-    model: str = ""
-    quiet: bool = False  # This isn't from the request JSON but from the URL
-    quiet_commands: bool = False  # This is to make testing easier
-    stream: bool = False
-    temperature: int = 0
     top_k: int = 0
     top_p: float = 0.0
-    use_advsettings: bool = False  # Set by //advsettings command
-    use_prefill: bool = False  # Set by //prefill command
-    use_ooctrick: bool = False  # Set by //ooctrick command
-    use_preset: str = None  # Set by //preset command
-    use_nobot: bool = False  # Set by //nobot command
-    use_think: bool = False  # Set by //think command
+
+    # Request URL
+    quiet: bool = False
+    quiet_commands: bool = False  # Only for testing
+
+    # Commands
+    use_fixturns: bool = False
+    use_btrick: bool = False
+    use_dice_char: bool = False
+    use_noass: bool = False
+    use_nobot: bool = False
+    use_ooctrick: bool = False
+    use_prefill: bool = False
+    use_preset: str | None = None
+    use_search: bool = False
+    use_think: bool = False
+
+    advsettings: dict[str, bool] = field(default_factory=dict)
+
+    def append_message(self, role: str, content: str):
+        self.messages.append(
+            JaiMessage(
+                content=content,
+                role=role,
+            )
+        )
 
     @staticmethod
     def parse(data: dict | str):
@@ -73,13 +99,27 @@ class JaiRequest:
             jai_req.max_tokens = max_tokens
 
         if messages := data.get("messages"):
+            if not isinstance(messages, list):
+                raise TypeError("Messages must be a list")
             jai_req.messages = [JaiMessage.parse(jai_msg) for jai_msg in messages]
 
-        if model := data.get("model").strip().lower():
-            if model.startswith("google/gemini"):  # OpenRouter
-                jai_req.model = model.split("/")[1]
+        if models := data.get("model"):
+            if not isinstance(models, str):
+                raise TypeError("Model must be a string")
+            requested_models = comma_split(models.lower())
+            # One Vertex model per request; provider rotation has been removed.
+            if len(requested_models) != 1:
+                jai_req.models["unknown"] = models
             else:
-                jai_req.model = model
+                model = requested_models[0]
+                for prefix in ("google/", "vertex/", "vertexai/"):
+                    if model.startswith(prefix):
+                        model = model[len(prefix) :]
+                        break
+                if re.fullmatch(r"gemini-[a-z0-9][a-z0-9._-]*", model):
+                    jai_req.models["google"] = model
+                else:
+                    jai_req.models["unknown"] = models
 
         if stream := data.get("stream"):
             jai_req.stream = stream
@@ -100,6 +140,60 @@ class JaiRequest:
             jai_req.repetition_penalty = repetition_penalty
 
         return jai_req
+
+
+################################################################################
+
+
+@dataclass(kw_only=True, slots=True)
+class JaiResultTokenUsage:
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    total_tokens: int | None = None
+
+
+@dataclass(kw_only=True, slots=True)
+class JaiResultMetadata:
+    "JanitorAI Generate Content Result Metadata"
+
+    api_key_valid: bool = True
+    rejection_feedback: str = ""
+    token_usage: JaiResultTokenUsage | None = None
+
+
+@dataclass(init=False, kw_only=True, slots=True)
+class JaiResult:
+    "JanitorAI Generate Content Result"
+
+    status: int
+    text: str
+    error: str
+    extras: str
+    metadata: JaiResultMetadata
+
+    def __init__(
+        self,
+        status: int,
+        message: str,
+        *,
+        extras: str = "",
+        metadata: JaiResultMetadata | None = None,
+    ):
+        self.status = status
+
+        if status == 200:
+            self.text = message
+            self.error = ""
+        else:
+            self.text = ""
+            self.error = message
+
+        self.extras = extras
+        self.metadata = metadata or JaiResultMetadata()
+
+    def __bool__(self) -> bool:
+        return self.status == 200
 
 
 ################################################################################

@@ -1,17 +1,21 @@
 """Utilities."""
 
 import atexit
-import click
+import base64
+import datetime
 import json
 import re
-import httpx
 import subprocess
 import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
-from flask import Response
 from itertools import groupby
+
+from flask import Response
+from httpx2 import HTTPError
+
+from .http_client import http_client
 
 ################################################################################
 
@@ -30,7 +34,7 @@ class ResponseMessage:
 
     text: str
 
-    status_code: int = None
+    status_code: int | None = None
 
 
 class ResponseHelper:
@@ -160,7 +164,10 @@ class ResponseHelper:
                 content = []
                 for msg in msg_group:
                     if msg.kind == MessageKind.ERROR:
-                        text = f"Error {msg.status_code}: {msg.text}"
+                        if msg.text.startswith("Error from"):
+                            text = msg.text
+                        else:
+                            text = f"Error {msg.status_code}: {msg.text}"
                     else:  # PROXY message
                         text = msg.text
                     content.append(text)
@@ -176,12 +183,10 @@ class ResponseHelper:
 
     @property
     def status_code(self) -> int:
-        click.echo("!!! Don't use .status_code on a ResponseHelper!!!")
         return self.build().status_code
 
     @property
-    def response(self) -> int:
-        click.echo("!!! Don't use .response on a ResponseHelper!!!")
+    def response(self):
         return self.build().response
 
 
@@ -220,8 +225,17 @@ def is_proxy_test(request_json: dict) -> bool:
 ################################################################################
 
 
+def comma_split(s: str) -> list[str]:
+    return [t for t in map(str.strip, s.split(",")) if t]
+
+
+################################################################################
+
+
 def _runner(cloudflared: str):
-    click.echo(" * Running cloudflared ...")
+    from .logging import xlog
+
+    xlog(None, "Running cloudflared ...")
 
     process = subprocess.Popen(
         [
@@ -238,23 +252,81 @@ def _runner(cloudflared: str):
 
     atexit.register(process.terminate)
 
+    pattern = re.compile(r"(?P<url>https?:\/\/[^\s]+.trycloudflare.com)")
+
     for _ in range(10):
         try:
-            metrics = httpx.get("http://127.0.0.1:5001/metrics").text
-            url = re.search(
-                r"(?P<url>https?:\/\/[^\s]+.trycloudflare.com)", metrics
-            ).group("url")
-            click.echo(f" * Tunnel on {url}")
-            return
-        except httpx.HTTPError:
+            metrics = http_client.get("http://127.0.0.1:5001/metrics").text
+            if match := pattern.search(metrics):
+                url = match.group("url")
+                xlog(None, f"Cloudflared tunnel on {url}")
+                return
+            else:
+                xlog(None, "Pattern search returned no match")
+        except HTTPError:
             time.sleep(1)
-    else:
-        click.echo(" * Couldn't get cloudflared link")
+    xlog(None, "Couldn't get cloudflared tunnel")
 
 
 def run_cloudflared(cloudflared: str):
     runner_thread = threading.Thread(target=_runner, args=(cloudflared,), daemon=True)
     runner_thread.start()
+
+
+################################################################################
+
+
+# https://github.com/googleapis/google-cloud-python/blob/b9466f9c85c94331ffc39e1da3cf98fb5ff7d612/packages/google-auth/google/auth/_helpers.py#L111
+def utcnow() -> datetime.datetime:
+    """Returns the current UTC datetime.
+
+    Returns:
+        datetime: The current time in UTC.
+    """
+    return datetime.datetime.now(datetime.UTC)
+
+
+# https://github.com/googleapis/google-cloud-python/blob/b9466f9c85c94331ffc39e1da3cf98fb5ff7d612/packages/google-auth/google/auth/_helpers.py#L127
+def utcfromtimestamp(timestamp: float) -> datetime.datetime:
+    """Returns the UTC datetime from a timestamp.
+
+    Args:
+        timestamp (float): The timestamp, in fractional seconds, to convert.
+
+    Returns:
+        datetime: The time in UTC.
+    """
+    return datetime.datetime.fromtimestamp(timestamp, tz=datetime.UTC)
+
+
+def utctimestamp() -> float:
+    """Returns the current UTC timestamp.
+
+    Returns:
+        float: The current time in UTC in fractional seconds.
+    """
+    return time.time()
+
+
+################################################################################
+
+
+def base64url_encode(input: str | bytes) -> str:
+    if isinstance(input, str):
+        input = input.encode("utf-8")
+
+    return base64.urlsafe_b64encode(input).decode("ascii").rstrip("=")
+
+
+def base64url_decode(input: str | bytes) -> bytes:
+    if isinstance(input, str):
+        input = input.encode("utf-8")
+
+    padding = len(input) % 4
+    if padding > 0 and not input.endswith(b"="):
+        input += b"=" * (4 - padding)
+
+    return base64.urlsafe_b64decode(input)
 
 
 ################################################################################

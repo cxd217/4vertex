@@ -1,21 +1,21 @@
 """X-Unique/User Identifier (XUID) and User Settings/Storage.
 
 XUIDs are a mechanism to anonymously identify unique users from sensitive data.
-The proxy has no access to any user-unique data or info except their API keys.
-Hashing an API key with a secret salt gives an unique user ID for program use.
+The proxy has no access to any user-unique data or info except their proxy access tokens.
+Hashing an access token with a secret salt gives an unique user ID for program use.
 """
 
 import json
-from base64 import urlsafe_b64encode as _base64
-from hashlib import sha256 as _hash_fun  # Choice of hash function is arbitrary
-from hmac import digest as _hmac_digest
-from threading import Lock as _threading_Lock
-from time import time as _unix_time
+from hashlib import sha256
+from hmac import digest
+from threading import Lock
 
 import redis
 import redis.exceptions
 import redis.lock
 from colorama.ansi import Fore as _colorama_ansi_fore
+
+from .utils import base64url_encode, utctimestamp
 
 _color_palette = [
     # no black, it'd be unreadable on dark theme
@@ -53,16 +53,16 @@ class XUID:
       issues should a XUID be part of any collections with heterogeneous types.
       This is the intended behavior. XUIDs must be handled with utmost care."""
 
-    LEN_REPR = (4 * _hash_fun().digest_size + 2) // 3
-    LEN_STR = 8  # Arbitrary, could be made a global proxy settings
-    LEN_PRETTY = LEN_STR + 2  # Does not includes non-visible ANSI escape codes
+    LEN_REPR = (4 * sha256().digest_size + 2) // 3
+    LEN_STR = 8
+    LEN_PRETTY = LEN_STR + 2
 
     def __init__(self, user: str | bytes, salt: str | bytes):
         user = user.encode("utf-8") if isinstance(user, str) else user
         salt = salt.encode("utf-8") if isinstance(salt, str) else salt
 
-        self._xuid_raw = _hmac_digest(salt, user, _hash_fun)
-        self._xuid_str = _base64(self._xuid_raw).rstrip(b"=").decode("ascii")
+        self._xuid_raw = digest(salt, user, sha256)
+        self._xuid_str = base64url_encode(self._xuid_raw)
 
     def __hash__(self) -> int:
         return hash(self._xuid_raw)
@@ -148,8 +148,8 @@ class LocalUserStorage(UserStorage):
 
     def __init__(self):
         self._announcement = ""
-        self._storage: dict[XUID, dict] = dict()
-        self._locks: dict[str, _threading_Lock] = dict()
+        self._storage: dict[XUID, dict] = {}
+        self._locks: dict[str, Lock] = {}
 
     def active(self) -> bool:
         return True
@@ -182,7 +182,7 @@ class LocalUserStorage(UserStorage):
     def lock(self, xuid: XUID) -> bool:
         lockid = xuid.lockid()
         if lockid not in self._locks:
-            self._locks[lockid] = _threading_Lock()
+            self._locks[lockid] = Lock()
         return self._locks[lockid].acquire(blocking=False)
 
     def unlock(self, xuid: XUID):
@@ -201,7 +201,7 @@ class RedisUserStorage(UserStorage):
     EXPIRY_TIME_IN_SECONDS = 30 * 24 * 60 * 60  # Arbitrary
 
     def __init__(self, url: str = DEFAULT_URL, timeout: float = 30):
-        self._locks: dict[str, redis.lock.Lock] = dict()
+        self._locks: dict[str, redis.lock.Lock] = {}
         self._client = redis.from_url(
             url, socket_timeout=timeout, socket_connect_timeout=timeout
         )
@@ -270,7 +270,7 @@ class UserSettings:
         self._data, self._exists = self._storage.get(self._xuid)
 
         if not self._exists:
-            self._data["timestamp_first_seen"] = int(_unix_time())
+            self._data["timestamp_first_seen"] = int(utctimestamp())
 
         self._data["version"] = 1
 
@@ -297,12 +297,36 @@ class UserSettings:
     #########################
 
     @property
-    def use_advsettings(self) -> bool:
-        return bool(self._data.get("use_advsettings", False))
+    def use_fixturns(self) -> bool:
+        return bool(self._data.get("use_fixturns", False))
 
-    @use_advsettings.setter
-    def use_advsettings(self, value):
-        self._data["use_advsettings"] = bool(value)
+    @use_fixturns.setter
+    def use_fixturns(self, value):
+        self._data["use_fixturns"] = bool(value)
+
+    @property
+    def use_btrick(self) -> bool:
+        return bool(self._data.get("use_btrick", False))
+
+    @use_btrick.setter
+    def use_btrick(self, value):
+        self._data["use_btrick"] = bool(value)
+
+    @property
+    def use_dice_char(self) -> bool:
+        return bool(self._data.get("use_dice_char", False))
+
+    @use_dice_char.setter
+    def use_dice_char(self, value):
+        self._data["use_dice_char"] = bool(value)
+
+    @property
+    def use_noass(self) -> bool:
+        return bool(self._data.get("use_noass", False))
+
+    @use_noass.setter
+    def use_noass(self, value):
+        self._data["use_noass"] = bool(value)
 
     @property
     def use_nobot(self) -> bool:
@@ -329,6 +353,14 @@ class UserSettings:
         self._data["use_prefill"] = bool(value)
 
     @property
+    def use_search(self) -> bool:
+        return bool(self._data.get("use_search", False))
+
+    @use_search.setter
+    def use_search(self, value):
+        self._data["use_search"] = bool(value)
+
+    @property
     def use_think(self) -> bool:
         return bool(self._data.get("use_think", False))
 
@@ -338,9 +370,33 @@ class UserSettings:
 
     #########################
 
+    @property
+    def prefill_mode(self) -> int:
+        return int(self._data.get("prefill_mode", 0))
+
+    @prefill_mode.setter
+    def prefill_mode(self, value):
+        self._data["prefill_mode"] = int(value)
+
+    @property
+    def think_text(self) -> str:
+        return str(self._data.get("think_text", "remove"))
+
+    @think_text.setter
+    def think_text(self, value):
+        self._data["think_text"] = str(value)
+
+    #########################
+
+    @property
+    def advsettings(self) -> dict[str, bool]:
+        return self._data.setdefault("advsettings", {})
+
+    #########################
+
     def last_seen(self) -> int | None:
         if seconds := self._data.get("timestamp_last_seen"):
-            return int(_unix_time() - seconds)
+            return int(utctimestamp() - seconds)
         return None
 
     def last_seen_msg(self) -> str:
@@ -349,7 +405,7 @@ class UserSettings:
         return "not seen before"
 
     def save(self):
-        self._data["timestamp_last_seen"] = int(_unix_time())
+        self._data["timestamp_last_seen"] = int(utctimestamp())
         self._storage.put(self._xuid, self._data)
 
     def do_show_banner(self, banner_version):

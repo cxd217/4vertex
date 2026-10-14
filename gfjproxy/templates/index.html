@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -16,16 +16,20 @@
     <div align="center">
       <img src="/static/gfjproxy.png" />
       <h1>{{ title }}</h1>
-      <h2>Google AI Studio Proxy for JanitorAI</h2>
+      <h2>Google Cloud Vertex AI Proxy for JanitorAI</h2>
       <p style="font-style: italic">Hosted by {{ admin }}</p>
       <hr />
       {% if announcement %}
         <p>{{ announcement|e }}</p>
         <hr />
       {% endif %}
-      <img src="/static/guide-1.png" alt="Open a chat, open API Settings, select Proxy and then Add Configuration." />
-      <img src="/static/guide-2.png" alt="Put a Gemini 2.5 model in Model Name (preview models work too), add the Proxy URL, your API Key, then press Save twice (to help with network errors)." />
-      <img src="/static/guide-3.png" alt="You must first Save and reload before you test a different URL. Make sure it's Active before reload. Press Test and wait a bit. If you get “Valid API Key. Configuration works!” then you are good to go. If you get “Network error. Try again later!” then try: Edit, Save Changes, Edit, Save Changes, Save Settings, reload and test again. Doing Edit/Save twice seems to work." />
+      <h3>JanitorAI 连接设置</h3>
+      <p>在聊天的 API Settings 中选择 Proxy，添加并启用配置。</p>
+      <p>Model Name：填写你的 Vertex AI 项目可用的 Gemini 模型，例如 <code>gemini-2.5-flash</code>。</p>
+      <p>Proxy URL：填写此服务的网址；使用 <code>/quiet/</code> 可隐藏更新横幅。</p>
+      <p>API Key：填写代理管理员提供的访问口令；未限制访问时可使用固定的用户标识。</p>
+      <p>保存后点击 Test。保持同一个 Key，才能保留你的命令设置。</p>
+      <p><a href="/health">服务状态</a> · <a href="/stats">请求统计</a></p>
       <hr />
       <pre>{{ version }}</pre>
     </div>

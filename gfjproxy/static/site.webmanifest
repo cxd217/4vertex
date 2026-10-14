@@ -1,7 +1,7 @@
 {
-  "name": "GeminiForJanitors",
+  "name": "VertexaiForJanitors",
   "short_name": "gfjproxy",
-  "description": "Google AI Studio Proxy for JanitorAI",
+  "description": "Google Vertex AI Proxy for JanitorAI",
   "background_color": "white",
   "theme_color": "black",
   "display": "standalone",

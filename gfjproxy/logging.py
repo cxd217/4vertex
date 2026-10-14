@@ -1,8 +1,9 @@
 """Proxy Logging System."""
 
 import logging
-from time import monotonic, gmtime
 from threading import Timer
+from time import gmtime, monotonic
+
 from .xuiduser import XUID, UserSettings
 
 ################################################################################
@@ -33,12 +34,7 @@ class _CustomFilter(logging.Filter):
         # /healthz is the default value on render.com and should be changed.
         # If something is hitting /healthz, then something strange is going on.
 
-        if record.getMessage().find('"GET /health HTTP/1.1" 200') != -1:
-            return False
-
-        # All good
-
-        return True
+        return record.getMessage().find('"GET /health HTTP/1.1" 200') == -1
 
 
 class _CustomFormatter(logging.Formatter):
@@ -51,7 +47,7 @@ class _CustomFormatter(logging.Formatter):
             filler = filler[: XUID.LEN_PRETTY]
 
         super().__init__(
-            fmt="%(asctime)s %(filler)s %(message)s",
+            fmt="%(asctime)s (%(process)d) %(filler)s %(message)s",
             datefmt="[%Y%m%dT%H%M%SZ]",
             style="%",
             defaults={"filler": filler.rjust(XUID.LEN_PRETTY)},
@@ -64,7 +60,7 @@ def _custom_handler(filler: str | None = None) -> logging.StreamHandler:
     return handler
 
 
-def hijack_loggers() -> list[str]:
+def hijack_loggers() -> None:
     """Hijack other people's loggers and make them use our custom handler.
 
     This is very hacky and very illegal, lol."""

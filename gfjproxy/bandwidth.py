@@ -4,18 +4,17 @@ import datetime
 import threading
 from dataclasses import dataclass
 from time import perf_counter
-from typing import cast
 
-import httpx
+import httpx2
 import redis
 import redis.exceptions
 import redis.lock
 
 from ._globals import BANDWIDTH_WARNING, PRODUCTION, RENDER_API_KEY, RENDER_SERVICE_ID
+from .http_client import http_client
 from .logging import xlog
 from .start_time import START_TIME
-from .storage import storage
-from .xuiduser import RedisUserStorage
+from .storage import get_redis_client, storage
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -27,15 +26,15 @@ class BandwidthUsage:
         return self.total >= 0
 
 
-def _query_bandwidth_usage() -> BandwidthUsage:
-    if not PRODUCTION:
+def _query_bandwidth_usage() -> BandwidthUsage | None:
+    if not RENDER_API_KEY or not RENDER_SERVICE_ID:
         total = perf_counter() - START_TIME
         xlog(None, f"Bandwidth: using mock total {total:.2f} MiB")
         return BandwidthUsage(total=int(total))
 
     xlog(None, "Bandwidth: querying ...")
 
-    end_time = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    end_time = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
 
     start_time = end_time.replace(
         day=1,
@@ -45,18 +44,22 @@ def _query_bandwidth_usage() -> BandwidthUsage:
         microsecond=0,
     )
 
-    response = httpx.get(
-        "https://api.render.com/v1/metrics/bandwidth",
-        params={
-            "resource": RENDER_SERVICE_ID,
-            "endTime": end_time.isoformat() + "Z",
-            "startTime": start_time.isoformat() + "Z",
-        },
-        headers={
-            "Accept": "application/json",
-            "Authorization": f"Bearer {RENDER_API_KEY}",
-        },
-    )
+    try:
+        response = http_client.get(
+            "https://api.render.com/v1/metrics/bandwidth",
+            params={
+                "resource": RENDER_SERVICE_ID,
+                "endTime": end_time.isoformat() + "Z",
+                "startTime": start_time.isoformat() + "Z",
+            },
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {RENDER_API_KEY}",
+            },
+        )
+    except httpx2.HTTPError as e:
+        xlog(None, f"Bandwidth: exception: {e}")
+        return None
 
     xlog(
         None,
@@ -82,17 +85,15 @@ def _query_bandwidth_usage() -> BandwidthUsage:
     return BandwidthUsage()
 
 
-def _update_bandwidth_usage(lock: redis.lock.Lock) -> None:
+def _update_bandwidth_usage(client: redis.Redis, lock: redis.lock.Lock) -> None:
     if result := _query_bandwidth_usage():
-        s = cast(RedisUserStorage, storage)  # Make type hinting happy
-
         # Only update the cache if the query is successful, i.e result is positive
-        s._client.set(":bandwidth-cache", result.total)
-        s._client.set(":bandwidth-cache-fresh", "<3", ex=300)  # 5 minutes
+        client.set(":bandwidth-cache", result.total)
+        client.set(":bandwidth-cache-fresh", "<3", ex=300)  # 5 minutes
 
         if 0 < BANDWIDTH_WARNING <= result.total:
             xlog(None, "Bandwidth: announcement set")
-            s.announcement = "\n".join(
+            storage.announcement = "\n".join(
                 (
                     f"Bandwidth quota is above {BANDWIDTH_WARNING / 1024:.1f} GiB.",
                     "Please consider using another URL.",
@@ -100,7 +101,7 @@ def _update_bandwidth_usage(lock: redis.lock.Lock) -> None:
             )
         else:
             xlog(None, "Bandwidth: announcement clear")
-            s.announcement = ""
+            storage.announcement = ""
 
     try:
         lock.release()
@@ -109,12 +110,14 @@ def _update_bandwidth_usage(lock: redis.lock.Lock) -> None:
 
 
 def bandwidth_usage() -> BandwidthUsage:
+    client = get_redis_client()
+
     # Redis storage is always required while an Render API is only required on production
-    if not isinstance(storage, RedisUserStorage) or (PRODUCTION and not RENDER_API_KEY):
+    if client is None or (PRODUCTION and not RENDER_API_KEY):
         return BandwidthUsage()
 
-    if not storage._client.get(":bandwidth-cache-fresh"):
-        lock = storage._client.lock(
+    if not client.get(":bandwidth-cache-fresh"):
+        lock = client.lock(
             name=":bandwidth-cache-lock",
             timeout=30,
             thread_local=False,
@@ -122,10 +125,10 @@ def bandwidth_usage() -> BandwidthUsage:
         if lock.acquire(blocking=False):
             threading.Thread(
                 target=_update_bandwidth_usage,
-                args=(lock,),
+                args=(client, lock),
                 daemon=True,
             ).start()
 
-    if isinstance((cache := storage._client.get(":bandwidth-cache")), bytes):
+    if isinstance((cache := client.get(":bandwidth-cache")), bytes):
         return BandwidthUsage(total=int(cache))
     return BandwidthUsage()
