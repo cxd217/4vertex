@@ -64,6 +64,36 @@ Health Check Path：`/health`。Python：3.13（仓库已提供 `.python-version
 设置后，JanitorAI 的 Key 必须匹配允许列表中的一个口令。可以直接加入你原来使用的 Key，保持用户设置。
 这类口令只是代理访问口令，不是 Google API Key，也不是服务账号 JSON。
 
+## 代理访问和请求格式校验
+
+在 Render 的 Environment 中设置 `GFJPROXY_ACCESS_KEYS`，Value 填你的私密代理口令。
+JanitorAI 的 API Key 填相同口令；多位用户可以设置多个口令，用逗号分隔。
+这个变量决定谁可以调用代理，`GFJPROXY_XUID_SECRET` 则用于生成用户 ID，两者用途不同。
+
+请求按以下顺序检查，通过后才调用 Vertex：
+
+1. 检查 Bearer 访问口令，以及配置的口令白名单。
+2. 检查 JSON 对象、单个 Gemini 模型、非空消息列表。
+3. 每条消息必须是对象，包含 `system`、`user` 或 `assistant` 角色和文本 `content`。
+4. `stream` 必须是布尔值；已知生成参数必须是正确类型和有效范围，拒绝 NaN、Infinity 等非有限值。
+
+| 返回状态 | 含义 |
+| --- | --- |
+| `401` | 没有口令或口令不在白名单中 |
+| `400` | 请求格式、模型名称或参数无效；错误提示会指出字段，不回显聊天正文 |
+| `503` | 设置了 `GFJPROXY_ACCESS_KEYS`，但 Value 为空或只有逗号/空格；修正它或删除该变量 |
+
+校验无效的请求不会转发给 Vertex，也不会创建用户设置。
+`GFJPROXY_ACCESS_KEYS` 完全未设置时仍保持旧版开放访问模式；设置有效白名单后才限制访问。
+正常的 JanitorAI Test、空的 assistant 预填充、模型别名和 SSE 格式继续支持。
+未使用的额外请求字段会被忽略，避免影响客户端兼容性。
+
+通用参数范围：`temperature` 为 0–2，`top_p` 为 0–1；`max_tokens`、`top_k` 为非负整数；
+`frequency_penalty` 和映射为 presence penalty 的 `repetition_penalty` 为 -2（含）至 2（不含）。
+可选数字参数的 `null` 按未设置处理，`max_tokens` 仍按本代理原有规则忽略。
+参数范围参考 [Google 官方说明](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/model-reference/inference)；
+具体模型、权限、区域和特定参数支持情况仍由 Vertex 判断。
+
 无 Redis 时仍能运行，但应使用单个 worker（`-w 1`）；重启会清除设置，统计页不会累计数据。
 不要在生产环境设置 `GFJPROXY_DEVELOPMENT`。
 

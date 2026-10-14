@@ -1,15 +1,18 @@
-from hmac import compare_digest
-from os import environ
 from traceback import print_exception
 
-from flask import Blueprint, abort, request
+from flask import Blueprint, request
 
 from ..cooldown import get_cooldown
 from ..handlers import handle_chat_message, handle_proxy_test
 from ..logging import xlog, xlogtime
-from ..models import JaiRequest
+from ..request_validation import (
+    ProxyAccessError,
+    RequestValidationError,
+    authorize_proxy_request,
+    parse_valid_request,
+)
 from ..storage import storage
-from ..utils import ResponseHelper, comma_split, is_proxy_test
+from ..utils import ResponseHelper, is_proxy_test
 from ..xuid_secret import xuid_secret
 from ..xuiduser import XUID, UserSettings
 
@@ -21,44 +24,26 @@ proxy = Blueprint("proxy", __name__)
 @proxy.route("/quiet/", methods=["POST"])
 @proxy.route("/quiet/chat/completions", methods=["POST"])
 def handle():
+    # Authenticate before parsing messages, creating a user or calling Vertex.
+    try:
+        token = authorize_proxy_request(request.headers.get("authorization", ""))
+    except ProxyAccessError as e:
+        return ResponseHelper(wrap_errors=True).build_error(str(e), e.status)
+
     request_json = request.get_json(silent=True)
     if not isinstance(request_json, dict) or not request_json:
-        abort(400, "Bad Request. Missing or invalid JSON object.")
-
-    try:
-        jai_req = JaiRequest.parse(request_json)
-    except (TypeError, ValueError):
-        return ResponseHelper().build_error("Invalid model or messages.", 400)
-
-    jai_req.quiet = "/quiet/" in request.path
-    proxy_test = is_proxy_test(request_json)
-    response = ResponseHelper(use_stream=jai_req.stream, wrap_errors=proxy_test)
-
-    # Client tokens identify proxy settings; Google uses the server's credentials.
-    request_auth = request.headers.get("authorization", "").split(maxsplit=1)
-    if len(request_auth) != 2 or request_auth[0].lower() != "bearer":
-        return response.build_error("Unauthorized. Proxy access token required.", 401)
-    tokens = comma_split(request_auth[1])
-    if not tokens:
-        return response.build_error("Unauthorized. Proxy access token required.", 401)
-    # Preserve the old XUID if the configuration still has comma-separated keys.
-    token = tokens[0]
-    allowed_tokens = comma_split(environ.get("GFJPROXY_ACCESS_KEYS", ""))
-    if allowed_tokens and not any(
-        compare_digest(token.encode("utf-8"), key.encode("utf-8"))
-        for key in allowed_tokens
-    ):
-        return response.build_error("Unauthorized. Invalid proxy access token.", 401)
-
-    if not jai_req.models:
-        return response.build_error("Please specify a model.", 400)
-    if jai_req.models.get("unknown"):
-        return response.build_error(
-            "Use one Vertex AI Gemini model, such as gemini-2.5-flash or google/gemini-2.5-flash.",
-            400,
+        return ResponseHelper(wrap_errors=True).build_error(
+            "Bad Request. Missing or invalid JSON object.", 400
         )
-    if not jai_req.messages:
-        return response.build_error("Please include at least one message.", 400)
+    proxy_test = is_proxy_test(request_json)
+    response = ResponseHelper(
+        use_stream=request_json.get("stream") is True, wrap_errors=proxy_test
+    )
+    try:
+        jai_req = parse_valid_request(request_json)
+    except RequestValidationError as e:
+        return response.build_error(str(e), 400)
+    jai_req.quiet = "/quiet/" in request.path
 
     xuid = XUID(token, xuid_secret)
     if not storage.lock(xuid):
