@@ -1,29 +1,86 @@
 """Proxy global variables."""
 
+import subprocess
+from datetime import UTC, datetime, timedelta
 from os import environ as _env
 from os import scandir as _scandir
+from os.path import dirname as _dirname
+
+################################################################################
 
 
-def _make_git_version():
-    import os.path
-    import subprocess
+CWD = _dirname(__file__)
 
-    version = "unknown"
+
+def _fallback_env(*names) -> str | None:
+    for name in names:
+        # Check that the environment variable is not None and not the empty string
+        if value := _env.get(name):
+            return value
+    return None
+
+
+def _get_proxy_branch() -> str:
+    branch = (
+        _fallback_env(
+            "GFJPROXY_BRANCH",
+            "RAILWAY_GIT_BRANCH",
+            "RENDER_GIT_BRANCH",
+        )
+        or "unknown"
+    )
 
     try:
-        p = subprocess.Popen(
-            ["git", "log", "-1", "--date=format:%Y.%m.%d", "--format=%ad-%h"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=os.path.dirname(__file__),
+        res = subprocess.run(
+            ["git", "symbolic-ref", "--short", "HEAD"],
+            capture_output=True,
+            cwd=CWD,
+            text=True,
+            check=True,
         )
-    except Exception:
+        if resstr := res.stdout.strip():
+            branch = resstr
+    except (FileNotFoundError, subprocess.SubprocessError):
         pass
-    else:
-        out, err = p.communicate()
 
-        if p.returncode == 0:
-            version = out.decode().strip()
+    return branch
+
+
+def _get_proxy_version() -> str:
+    version = (
+        _fallback_env(
+            "GFJPROXY_VERSION",
+            "RAILWAY_GIT_COMMIT_SHA",
+            "RENDER_GIT_COMMIT",
+        )
+        or "unknown"
+    )
+
+    try:
+        res = subprocess.run(
+            ["git", "log", "-1", "--format=%ct-%h"],
+            capture_output=True,
+            cwd=CWD,
+            text=True,
+            check=True,
+        )
+        if resstr := res.stdout.strip():
+            timestamp, commit = resstr.split("-", maxsplit=1)
+
+            # The previous code used "--date=format:%Y.%m.%d --format=%ad-%h" to format
+            # the version string, leading to it being implicitly dependent on the timezone
+            # of the committer. Since up to the time of writing, the only author has been
+            # from the UTC-4 timezone, it is possible to maintain backwards compat with old
+            # deployments by making the versioning scheme officially based on UTC-4 and
+            # independent of the committer's timezone. This makes it possible to always
+            # reliably derive a version from a commit hash and its UTC timestamp alone, such
+            # as those provided from the GitHub APIs.
+
+            dt = datetime.fromtimestamp(int(timestamp), tz=UTC) - timedelta(hours=4)
+
+            version = f"{dt:%Y.%m.%d}-{commit}"
+    except (FileNotFoundError, subprocess.SubprocessError):
+        pass
 
     return version
 
@@ -41,36 +98,11 @@ else:
 
 CLOUDFLARED = _env.get("GFJPROXY_CLOUDFLARED")
 
-# XXX: Manually keep this up to date
-MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-flash-lite-preview-06-17",
-    "gemini-2.5-flash-lite-preview-09-2025",
-    "gemini-2.5-flash-preview-05-20",
-    "gemini-2.5-flash-preview-09-2025",
-    "gemini-2.5-pro",
-    "gemini-2.5-pro-preview-03-25",
-    "gemini-2.5-pro-preview-05-06",
-    "gemini-2.5-pro-preview-06-05",
-    "gemini-3-pro-preview",
-    "gemini-flash-latest",
-    "gemini-flash-lite-latest",
-    "gemini-pro-latest",
-]
-
-# XXX: FileNotFoundError
-with open("prefill.txt", encoding="utf-8") as prefill:
-    PREFILL = prefill.read()
-with open("think.txt", encoding="utf-8") as think:
-    THINK = think.read()
-
 PRESETS = {}
 for entry in _scandir("presets"):
     if entry.is_file():
         with open(f"presets/{entry.name}", encoding="utf-8") as preset:
             PRESETS[entry.name.split(".")[0]] = preset.read()
-
 
 PROXY_AUTHORS = [
     "@undefinedundefined (@undefined_anon on Discord, vu5eruz on GitHub)",
@@ -78,24 +110,28 @@ PROXY_AUTHORS = [
 
 PROXY_ADMIN = _env.get("GFJPROXY_ADMIN", "Anonymous")
 
-PROXY_NAME = "GeminiForJanitors"
+PROXY_NAME = "VertexaiForJanitors"
 
-PROXY_VERSION = _make_git_version()
+PROXY_BRANCH = _get_proxy_branch()
 
-PROXY_URL = _env.get("GFJPROXY_EXTERNAL_URL", "").rstrip("/")
-if not PROXY_URL:
-    PROXY_URL = _env.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-    if not PROXY_URL:
-        PROXY_URL = "https://geminiforjanitors.onrender.com"
+PROXY_VERSION = _get_proxy_version()
+
+PROXY_URL = (
+    _fallback_env(
+        "GFJPROXY_EXTERNAL_URL",
+        "RAILWAY_PUBLIC_DOMAIN",
+        "RENDER_EXTERNAL_URL",
+    )
+    or "http://localhost:5000"
+).rstrip("/")
 
 COOLDOWN = _env.get("GFJPROXY_COOLDOWN", "0")
 
-BANDWIDTH_WARNING = int(_env.get("GFJPROXY_BANDWIDTH_WARNING", 0))  # MiB
+BANDWIDTH_WARNING = int(
+    _env.get("GFJPROXY_BANDWIDTH_WARNING", "2560")
+)  # 2.5 GiB in MiB
 
-if (_RENDER_API_KEY := _env.get("GFJPROXY_RENDER_API_KEY", "")).startswith("rnd_"):
-    RENDER_API_KEY = _RENDER_API_KEY
-else:
-    RENDER_API_KEY = None
+RENDER_API_KEY = _env.get("GFJPROXY_RENDER_API_KEY")
 
 RENDER_SERVICE_ID = _env.get("RENDER_SERVICE_ID")
 
@@ -103,63 +139,34 @@ REDIS_URL = _env.get("GFJPROXY_REDIS_URL")
 
 XUID_SECRET = _env.get("GFJPROXY_XUID_SECRET")
 
+STATS_DURATION = int(_env.get("GFJPROXY_STATS_DURATION", "24"))
+
 ################################################################################
 
-BANNER_VERSION = 17
+# Changing this has an impact on whether the runner (specifically gunicorn) will
+# forcefully reset a worker after taking too long to answer a request. When
+# deploying using gunicorn, make sure to provide a -t value larger than the one
+# in here, to prevent issues from arising at run-time.
+PROCESS_TIMEOUT: int = max(
+    int(_env.get("GFJPROXY_PROCESS_TIMEOUT", "300")) - 10,
+    60,
+)
+
+################################################################################
+
+BANNER_VERSION = 36
 
 BANNER = rf"""***
-# {PROXY_NAME} ({PROXY_VERSION})
+# **{PROXY_NAME}** ({PROXY_VERSION} {PROXY_BRANCH})
 *Hosted by {PROXY_ADMIN}*
 
-This proxy is hosted by volunteers, all bound to Render's monthly 100 GB bandwidth quota. Make sure to use different URLs to distribute the load!
+This edition uses Google Cloud Vertex AI with server-side credentials.
+Your JanitorAI API Key identifies your user settings and is never sent to Google.
+Use a model such as `gemini-2.5-flash` or `google/gemini-2.5-flash`.
 
-- `https://geminiforjanitors-k4v3.onrender.com` by **undefinedundefined**
-- `https://geminiforjanitors-r7wu.onrender.com` by **NixGG**
-- `https://geminiforjanitors-rhuc.onrender.com` by **.shiro.**
-- `https://geminiforjanitors-s34l.onrender.com` by **MajestyLotus221**
-- `https://geminiforjanitors-wq7l.onrender.com` by **NixGG**
-
+Send `//help commands` for commands, or `//help vertex` for connection details.
+The latest command features include `//fixturns` and `//prefill_mode`.
+Statistics are available at `{PROXY_URL}/stats` when Redis is configured.
+Use `{PROXY_URL}/quiet/` to hide this banner.
 ***
-
-## Commands
-
-You can include one or more commands in your messages, separated by spaces. You can turn on some commands and they will apply across all messages in all chats. Some commands can be called with `this` to make them only apply to the next message. Preset commands need to be called every time you want to use them.
-
-- `//aboutme`
-  Shows you info about your proxy usage and what commands you have turned on or off.
-
-- `//banner`
-  Shows you this banner, regardless of whether you have seen it before or if you use the `/quiet/` URL.
-
-- `//advsettings on|off|this`
-  Enables JanitorAI generation settings: Max Tokens, Top K, Top P, and Frequency/Repetition Penalty. *Note:* use this only if you know what you are doing. *Note:* Top K/P may have no effect.
-
-- `//ooctrick on|off|this`
-  Inserts two fake OOC messages into the chat when generating, hopefully fooling the content filters and bypassing them.
-
-- `//prefill on|off|this`
-  Adds Eslezer's prefill to the chat. This could help prevent errors, but it is not guaranteed.
-
-- `//think on|off|this`
-  Tricks Gemini into doing its thinking inside the response to bypass content filters. *Note:* this might cause ᐸthinkᐳ/ᐸresponseᐳ to leak into the bot's messages.
-
-- `//nobot on|off|this`
-  Removes the bot's description from the chat, in case it contains ToS-breaking content. *Note:* use this only as a last resort. This will negatively impact your chat.
-
-- `//preset gigakostyl`
-  Adds a simple writing guideline for NSFW roleplay, plus "X-ray views" to sex scenes.
-
-- `//preset minipopka`
-  Adds a longer writing guideline to enhance narration and NSFW roleplay.
-
-***
-
-## Extras
-
-You can use more than one API key, separated with commas, and the proxy will automatically rotate them for you on every message. You can use this mechanism to streamline the use of multiple Google accounts and amortize requests per day quotas, using only one proxy setting.
-
-You should only see this banner if you are a new user or if there has been a new update. If you don't want to see these banners, change your proxy URL to: `{PROXY_URL}/quiet/`. You are going to miss on updates if you use that URL. You can always use the command `//banner` to receive the latest news regardless of your URL.
-
-Feel free to reroll or edit this message to remove this banner."""
-
-################################################################################
+"""

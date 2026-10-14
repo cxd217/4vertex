@@ -201,3 +201,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local configuration and Google credentials
+.env
+.env.*
+!.env.example
+vertex_credentials.json
+*credentials*.json
+*service-account*.json
