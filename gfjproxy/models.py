@@ -161,6 +161,7 @@ class JaiResultMetadata:
     rejection_feedback: str = ""
     token_usage: JaiResultTokenUsage | None = None
     finish_reason: str = ""
+    model_ids: tuple[str, ...] = ()
 
 
 @dataclass(init=False, kw_only=True, slots=True)

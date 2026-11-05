@@ -466,8 +466,13 @@ def handle_chat_message(
     if not result:
         track_stats(f"r.{rtype}.failed")
 
-        if runapi and result.status == 503:
-            # Keep the HTTP error and model list visible, even if commands added notices.
+        if runapi and result.status in (404, 503):
+            if ids := result.metadata.model_ids:
+                # A catalog reply is plain assistant text, separate from command notices.
+                return ResponseHelper(
+                    use_stream=jai_req.stream,
+                    show_announcement=False,
+                ).add_message("\n".join(ids))
             return ResponseHelper().add_error(result.error, result.status)
 
         if feedback := result.metadata.rejection_feedback:
@@ -641,9 +646,12 @@ def _stream_chat_reply(
                 if not is_runapi:
                     _add_vertex_model_hint(part)
                 track_stats(f"r.{rtype}.failed")
-                tail.add_proxy_message(f"Error {part.status}: {part.error}")
-                if part.extras:
-                    tail.add_proxy_message(part.extras)
+                if is_runapi and (ids := part.metadata.model_ids):
+                    tail.add_message("\n" + "\n".join(ids))
+                else:
+                    tail.add_proxy_message(f"Error {part.status}: {part.error}")
+                    if part.extras:
+                        tail.add_proxy_message(part.extras)
                 xlog(user, f"{provider} stream failed with status {part.status}")
             break
     finally:

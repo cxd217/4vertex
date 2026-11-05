@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import httpx2
 
 from ..models import JaiMessage, JaiResult, JaiResultMetadata, JaiResultTokenUsage
-from .runapi import RunAPIError, open_runapi_chat, runapi_error_message
+from .runapi import RunAPIError, describe_runapi_error, open_runapi_chat
 from .sse import sse_data
 
 
@@ -76,11 +76,12 @@ class RunAPIChat:
 
     def _error(self, error: Exception) -> JaiResult:
         if isinstance(error, RunAPIError):
+            message, model_ids = describe_runapi_error(self.key, error)
             return JaiResult(
                 error.status,
-                runapi_error_message(self.key, error),
+                message,
                 metadata=JaiResultMetadata(
-                    api_key_valid=error.status not in (401, 403)
+                    api_key_valid=error.status not in (401, 403), model_ids=model_ids
                 ),
             )
         if isinstance(error, httpx2.TimeoutException):
