@@ -64,7 +64,9 @@ def _load_credentials() -> tuple[Credentials, str, str, Request]:
     return credentials, project, location, Request()
 
 
-def vertex_request_auth(model: str) -> tuple[str, dict[str, str]]:
+def vertex_request_auth(
+    model: str, *, stream: bool = False
+) -> tuple[str, dict[str, str]]:
     """Refresh expiring credentials and return the Vertex URL and OAuth headers."""
     if not re.fullmatch(r"gemini-[a-z0-9][a-z0-9._-]*", model):
         raise VertexConfigurationError("Invalid Vertex AI Gemini model name.")
@@ -76,9 +78,10 @@ def vertex_request_auth(model: str) -> tuple[str, dict[str, str]]:
             host = f"aiplatform.{location}.rep.googleapis.com"
         else:
             host = f"{location}-aiplatform.googleapis.com"
+        method = "streamGenerateContent?alt=sse" if stream else "generateContent"
         url = (
             f"https://{host}/v1/projects/{project}/locations/{location}"
-            f"/publishers/google/models/{model}:generateContent"
+            f"/publishers/google/models/{model}:{method}"
         )
         headers = {"Content-Type": "application/json"}
         credentials.before_request(auth_request, "POST", url, headers)

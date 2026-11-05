@@ -6,7 +6,7 @@ from os import environ as _env
 from os import scandir as _scandir
 from os.path import dirname as _dirname
 
-from .feature_guide import FEATURE_GUIDE
+from .feature_guide import BANNER_FEATURE_GUIDE
 
 ################################################################################
 
@@ -156,20 +156,34 @@ PROCESS_TIMEOUT: int = max(
 
 ################################################################################
 
-BANNER_VERSION = 37
+BANNER_VERSION = 39
 
-BANNER = rf"""***
+
+def _make_banner(connection: str, quiet_path: str) -> str:
+    return f"""***
 # **{PROXY_NAME}** ({PROXY_VERSION} {PROXY_BRANCH})
-*管理者：{PROXY_ADMIN}*
+*Admin: {PROXY_ADMIN}*
 
-此版本使用 Google Cloud Vertex AI，由服务器上的服务账号完成 Google 认证。
-JanitorAI 的 API Key 用于代理访问和识别用户，不会传给 Google。
-模型名称可填写 `gemini-2.5-flash`，也支持 `google/`、`vertex/`、`vertexai/` 前缀，以项目和区域可用的模型为准。
+{connection}
 
-{FEATURE_GUIDE}
+{BANNER_FEATURE_GUIDE}
 
-服务状态：`{PROXY_URL}/health`
-请求统计：`{PROXY_URL}/stats`
-隐藏自动横幅的地址：`{PROXY_URL}/quiet/`
+Service status: `{PROXY_URL}/health`
+Request statistics: `{PROXY_URL}/stats`
+Proxy URL without the automatic banner: `{PROXY_URL}{quiet_path}`
 ***
 """
+
+
+BANNER = _make_banner(
+    "This chat uses Google Cloud Vertex AI with server-side credentials.\n"
+    "Your JanitorAI API key is used for proxy access and user identification. It is not sent to Google.\n"
+    "Enter a Gemini model ID available to your project and region. The `google/`, `vertex/`, and `vertexai/` prefixes are optional.",
+    "/quiet/",
+)
+
+RUNAPI_BANNER = _make_banner(
+    "This chat uses RunAPI with the API key supplied in JanitorAI.\n"
+    "Enter the complete model ID from your RunAPI catalog. If a model returns HTTP 503 or 404, the proxy fetches the current list for your key.",
+    "/runapi/quiet/",
+)

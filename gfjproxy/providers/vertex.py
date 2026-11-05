@@ -80,17 +80,9 @@ def _get_quota_violation_feedback(qid: str) -> str | None:
     return None
 
 
-def vertex_generate_content(
-    user: XUID,
-    model: str,
-    messages: list[JaiMessage],
-    settings: dict[str, Any] | None = None,
-) -> JaiResult:
-    """Wrapper around Gemini on Google Cloud Vertex AI.
-
-    User paramater is only used for logging. Generation settings must all be passed inside the
-    settings parameter."""
-
+def build_vertex_payload(
+    messages: list[JaiMessage], settings: dict[str, Any] | None
+) -> dict[str, Any]:
     generation_config: dict[str, Any] = {}
 
     gemini_request: dict[str, Any] = {
@@ -144,32 +136,23 @@ def vertex_generate_content(
             generation_config["presencePenalty"] = value
         elif key == "search" and value:
             gemini_request["tools"] = [{"googleSearch": {}}]
+    return gemini_request
 
-    try:
-        url, headers = vertex_request_auth(model)
-        response = http_client.post(
-            url,
-            headers=headers,
-            json=gemini_request,
-            timeout=PROCESS_TIMEOUT,
-        )
-        response.raise_for_status()
-        gemini_result = response.json()
-        if not isinstance(gemini_result, dict):
-            raise TypeError("Invalid Vertex AI response")
-    except VertexConfigurationError as e:
+
+def vertex_request_failure(user: XUID, model: str, e: Exception) -> JaiResult:
+    if isinstance(e, VertexConfigurationError):
         track_stats("g.failed.config")
         return JaiResult(503, str(e))
-    except GoogleAuthError:
+    if isinstance(e, GoogleAuthError):
         track_stats("g.failed.auth")
         return JaiResult(
             502,
             "Vertex AI authentication failed. Check the server's Google credentials.",
         )
-    except httpx2.TimeoutException:
+    if isinstance(e, httpx2.TimeoutException):
         track_stats("g.time_out")
         return JaiResult(504, "Gateway Timeout")
-    except httpx2.HTTPStatusError as e:
+    if isinstance(e, httpx2.HTTPStatusError):
         message = "Error from Vertex AI"
         metadata = JaiResultMetadata()
         extras = ""
@@ -270,11 +253,51 @@ def vertex_generate_content(
         return JaiResult(
             e.response.status_code, message, extras=extras, metadata=metadata
         )
-    except Exception as e:  # ruff: ignore[BLE001]
-        xlog(user, repr(e))  # These are R E A L L Y anomalous
-        track_stats("g.failed.unknown")
-        return JaiResult(502, "Unexpected error from Vertex AI.")
+    xlog(user, repr(e))  # These are R E A L L Y anomalous
+    track_stats("g.failed.unknown")
+    return JaiResult(502, "Unexpected error from Vertex AI.")
 
+
+def vertex_generate_content(
+    user: XUID,
+    model: str,
+    messages: list[JaiMessage],
+    settings: dict[str, Any] | None = None,
+) -> JaiResult:
+    """Generate a buffered reply on Vertex AI."""
+    gemini_request = build_vertex_payload(messages, settings)
+    try:
+        url, headers = vertex_request_auth(model)
+        response = http_client.post(
+            url,
+            headers=headers,
+            json=gemini_request,
+            timeout=PROCESS_TIMEOUT,
+        )
+        response.raise_for_status()
+        gemini_result = response.json()
+        if not isinstance(gemini_result, dict):
+            raise TypeError("Invalid Vertex AI response")
+    except Exception as e:  # noqa: BLE001 -- translate upstream and credential failures
+        return vertex_request_failure(user, model, e)
+    return parse_vertex_response(user, gemini_result)
+
+
+def vertex_visible_text(candidate: dict[str, Any]) -> str:
+    content = candidate.get("content")
+    parts = content.get("parts") if isinstance(content, dict) else None
+    if not isinstance(parts, list):
+        return ""
+    return "".join(
+        part["text"]
+        for part in parts
+        if isinstance(part, dict)
+        and isinstance(part.get("text"), str)
+        and not part.get("thought")
+    )
+
+
+def parse_vertex_response(user: XUID, gemini_result: dict[str, Any]) -> JaiResult:
     text = ""
     extras = ""
     metadata = JaiResultMetadata()
@@ -284,19 +307,7 @@ def vertex_generate_content(
             xlog(user, "Warning: more than one candidate found in response")
         candidate = candidates[0]
         if isinstance(candidate, dict):
-            if (
-                (content := candidate.get("content"))
-                and isinstance(content, dict)
-                and (parts := content.get("parts"))
-                and isinstance(parts, list)
-            ):
-                text = ""
-                for part in parts:
-                    if isinstance(part, dict):
-                        part_text = part.get("text")
-                        part_thought = part.get("thought", False)
-                        if isinstance(part_text, str) and not part_thought:
-                            text += part_text
+            text = vertex_visible_text(candidate)
 
             if gm := candidate.get("groundingMetadata"):
                 # U+3164 HANGUL FILLER
