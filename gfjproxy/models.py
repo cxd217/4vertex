@@ -160,6 +160,7 @@ class JaiResultMetadata:
     api_key_valid: bool = True
     rejection_feedback: str = ""
     token_usage: JaiResultTokenUsage | None = None
+    finish_reason: str = ""
 
 
 @dataclass(init=False, kw_only=True, slots=True)

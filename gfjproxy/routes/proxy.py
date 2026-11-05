@@ -5,9 +5,16 @@ import httpx2
 from flask import Blueprint, Response, jsonify, request
 
 from ..cooldown import get_cooldown
-from ..handlers import handle_chat_message, handle_proxy_test
+from ..handlers import LiveChatReply, handle_chat_message, handle_proxy_test
 from ..logging import xlog, xlogtime
-from ..providers.runapi import RunAPIError, get_runapi_models, open_runapi_chat
+from ..models import JaiRequest
+from ..providers.runapi import (
+    RunAPIError,
+    get_runapi_models,
+    open_runapi_chat,
+    runapi_error_message,
+)
+from ..providers.runapi_chat import RunAPIChat
 from ..request_validation import (
     ProxyAccessError,
     RequestValidationError,
@@ -49,10 +56,21 @@ def handle(*, runapi_only: bool = False):
     response = ResponseHelper(
         use_stream=request_json.get("stream") is True, wrap_errors=proxy_test
     )
-    if runapi_key:
-        return _handle_runapi_chat(runapi_key, request_json, proxy_test, response)
+    runapi = None
     try:
-        jai_req = parse_valid_request(request_json)
+        if runapi_key:
+            payload = parse_runapi_request(request_json)
+            if runapi_key in payload["model"]:
+                raise RequestValidationError(
+                    "Enter a model ID in Model Name, not the API key."
+                )
+            if "/v1/" in request.path:
+                return _handle_runapi_chat(runapi_key, payload, proxy_test, response)
+            runapi = RunAPIChat(runapi_key, payload)
+            jai_req = JaiRequest.parse(request_json)
+            jai_req.models = {"runapi": payload["model"]}
+        else:
+            jai_req = parse_valid_request(request_json)
     except RequestValidationError as e:
         return response.build_error(str(e), 400)
     jai_req.quiet = "/quiet/" in request.path
@@ -64,6 +82,7 @@ def handle(*, runapi_only: bool = False):
             "Concurrent use is not allowed. Please wait a moment.", 403
         )
 
+    release_here = True
     try:
         user = UserSettings(storage, xuid)
         if (
@@ -79,17 +98,43 @@ def handle(*, runapi_only: bool = False):
             user,
             f"Processing {'stream ' if jai_req.stream else ''}{request.path} "
             f"(User {user.last_seen_msg()}, Request #{user.get_rcounter()}, "
-            f"Model {jai_req.models['google']})",
+            f"Model {next(iter(jai_req.models.values()))})",
         )
 
         try:
+            provider_options = {"runapi": runapi} if runapi else {}
             if proxy_test:
-                response = handle_proxy_test(user, jai_req, response)
+                response = handle_proxy_test(
+                    user, jai_req, response, **provider_options
+                )
             else:
-                response = handle_chat_message(user, jai_req, response)
+                response = handle_chat_message(
+                    user, jai_req, response, **provider_options
+                )
         except Exception as e:  # noqa: BLE001 -- report failures and release the user lock
             response.add_error("Internal Proxy Error", 500)
             print_exception(e)
+
+        if isinstance(response, LiveChatReply):
+            live_reply = response
+            reply = Response(
+                live_reply.body(lambda: storage.announcement),
+                content_type="text/event-stream; charset=utf-8",
+            )
+            reply.headers["X-Accel-Buffering"] = "no"
+            reply.headers["Cache-Control"] = "no-cache"
+
+            def finalize():
+                try:
+                    live_reply.close()
+                    if user.valid:
+                        user.save()
+                finally:
+                    storage.unlock(xuid)
+
+            reply.call_on_close(finalize)
+            release_here = False
+            return reply
 
         if 200 <= response.status <= 299:
             xlogtime(user, "Processing succeeded", ref_time)
@@ -105,7 +150,8 @@ def handle(*, runapi_only: bool = False):
             user.save()
         return response.build()
     finally:
-        storage.unlock(xuid)
+        if release_here:
+            storage.unlock(xuid)
 
 
 @proxy.route("/runapi/", methods=["POST"])
@@ -143,22 +189,6 @@ def models():
     return reply
 
 
-def _runapi_error(key: str, error: RunAPIError, response: ResponseHelper):
-    message = str(error)
-    if error.status in (404, 503):
-        # Always fetch the catalog anew with this request's key. Never retry generation.
-        try:
-            names = get_runapi_models(key)
-        except RunAPIError:
-            message += "\n\nCould not retrieve the RunAPI model list for this key."
-        else:
-            if names:
-                message += "\n\nRunAPI model IDs for this key:\n" + "\n".join(names)
-            else:
-                message += "\n\nRunAPI listed no models for this key."
-    return response.build_error(message, error.status)
-
-
 def _relay_runapi(upstream: httpx2.Response):
     try:
         yield from upstream.iter_bytes()
@@ -168,12 +198,8 @@ def _relay_runapi(upstream: httpx2.Response):
 
 
 def _handle_runapi_chat(
-    key: str, data: dict, proxy_test: bool, response: ResponseHelper
+    key: str, payload: dict, proxy_test: bool, response: ResponseHelper
 ):
-    try:
-        payload = parse_runapi_request(data)
-    except RequestValidationError as error:
-        return response.build_error(str(error), 400)
     if proxy_test:
         payload["stream"] = False
 
@@ -218,7 +244,7 @@ def _handle_runapi_chat(
                 reply = response.build_message("TEST") if proxy_test else jsonify(body)
         except RunAPIError as error:
             track_stats("r.runapi.failed")
-            return _runapi_error(key, error, response)
+            return response.build_error(runapi_error_message(key, error), error.status)
         except httpx2.TimeoutException:
             track_stats("r.runapi.failed")
             return response.build_error("RunAPI timed out.", 504)

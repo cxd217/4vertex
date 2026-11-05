@@ -1,4 +1,8 @@
+import json
 import re
+from collections.abc import Callable, Generator, Iterator
+from dataclasses import dataclass
+from itertools import chain
 from random import randint
 from typing import Any, cast
 
@@ -7,13 +11,22 @@ from .commands import CommandError, CommandExit
 from .logging import xlog
 from .models import JaiMessage, JaiRequest, JaiResult
 from .prefill import apply_prefill, clear_prefill
+from .providers.runapi_chat import RunAPIChat
 from .providers.vertex import vertex_generate_content
+from .providers.vertex_stream import vertex_stream_content
 from .request_validation import configured_vertex_models
 from .statistics import track_stats
 from .utils import ResponseHelper
 from .xuiduser import XUID, UserSettings
 
 ################################################################################
+
+
+@dataclass(slots=True)
+class LiveChatReply:
+    body: Callable[[Callable[[], str | None]], Iterator[str]]
+    close: Callable[[], None]
+
 
 def _handle_request(
     user: XUID,
@@ -26,9 +39,16 @@ def _handle_request(
     if not model:
         return JaiResult(400, "Please specify a Vertex AI Gemini model.")
     xlog(user, f"Using Vertex AI/{model}")
-    result = vertex_generate_content(user, model, messages, settings)
+    return _add_vertex_model_hint(
+        vertex_generate_content(user, model, messages, settings)
+    )
+
+
+def _add_vertex_model_hint(result: JaiResult) -> JaiResult:
     if result.status == 503 and (ids := configured_vertex_models()):
-        result.error += "\n\nModel IDs configured by this proxy's Vertex admin:\n" + "\n".join(ids)
+        result.error += (
+            "\n\nModel IDs configured by this proxy's Vertex admin:\n" + "\n".join(ids)
+        )
     return result
 
 
@@ -78,17 +98,21 @@ def parse_user_persona_names(
 
 
 def handle_proxy_test(
-    user: UserSettings, jai_req: JaiRequest, response: ResponseHelper
+    user: UserSettings,
+    jai_req: JaiRequest,
+    response: ResponseHelper,
+    *,
+    runapi: RunAPIChat | None = None,
 ) -> ResponseHelper:
     """Proxy test handler.
 
-    This tests the server-side Vertex AI connection and selected model."""
+    This tests the selected provider connection and model."""
 
     # Pass no settings. Defaults should allow for a successfuly proxy test.
-    result = _handle_request(
-        user.xuid,
-        jai_req.models,
-        jai_req.messages,
+    result = (
+        runapi.generate(jai_req.messages, {})
+        if runapi
+        else _handle_request(user.xuid, jai_req.models, jai_req.messages)
     )
 
     user.valid = result.metadata.api_key_valid
@@ -110,8 +134,12 @@ def handle_proxy_test(
 
 
 def handle_chat_message(
-    user: UserSettings, jai_req: JaiRequest, response: ResponseHelper
-) -> ResponseHelper:
+    user: UserSettings,
+    jai_req: JaiRequest,
+    response: ResponseHelper,
+    *,
+    runapi: RunAPIChat | None = None,
+) -> ResponseHelper | LiveChatReply:
     """Chat message handler.
 
     This handles when the user sends a simple chat message to the bot."""
@@ -202,8 +230,7 @@ def handle_chat_message(
             + (" (for this message only)." if not user.use_think else "."),
         )
 
-        jai_req.append_message(
-            "assistant",
+        think_instructions = (
             "You should structure your response using thinking tags:\n"
             "\n"
             "<think>\n"
@@ -220,8 +247,15 @@ def handle_chat_message(
             "[Just the story/roleplay]\n"
             "</response>\n"
             "\n"
-            "This format helps separate your reasoning from the actual roleplay content.",
+            "This format helps separate your reasoning from the actual roleplay content."
         )
+        if runapi:
+            # Keep the last user turn intact for gateways that disallow assistant prefills.
+            jai_req.messages.insert(
+                0, JaiMessage(role="system", content=think_instructions)
+            )
+        else:
+            jai_req.append_message("assistant", think_instructions)
 
         used_think = True
     else:
@@ -259,7 +293,7 @@ def handle_chat_message(
     else:
         used_ooctrick = False
 
-    if used_think:
+    if used_think and not runapi:
         jai_req.append_message(
             "assistant",
             "Remember to use <think>...</think> for your reasoning and <response>...</response> for your roleplay content.",
@@ -290,7 +324,7 @@ def handle_chat_message(
 
         # Append the btrick at the end, before the unclosed <think> tag if any
         jai_req.messages.insert(
-            len(jai_req.messages) - int(used_think),
+            len(jai_req.messages) - int(used_think and not runapi),
             JaiMessage(
                 content=btrick,
                 role="user",
@@ -337,6 +371,11 @@ def handle_chat_message(
         jai_req_advset = jai_req.advsettings.get(setting, False)
         user_advset = user.advsettings.get(setting, False)
         if jai_req_advset or user_advset:
+            if runapi and setting == "top_k":
+                response.add_proxy_message(
+                    "Top K is only available on the Vertex AI route."
+                )
+                continue
             value = getattr(jai_req, setting)
 
             xlog(
@@ -349,13 +388,17 @@ def handle_chat_message(
             settings[setting] = value
 
     if jai_req.use_search or user.use_search:
-        xlog(
-            user,
-            "Adding Google Search tool to model"
-            + (" (for this message only)." if not user.use_search else "."),
-        )
-
-        settings["search"] = True
+        if runapi:
+            response.add_proxy_message(
+                "Google Search is only available on the Vertex AI route."
+            )
+        else:
+            xlog(
+                user,
+                "Adding Google Search tool to model"
+                + (" (for this message only)." if not user.use_search else "."),
+            )
+            settings["search"] = True
 
     if jai_req.use_fixturns or user.use_fixturns:
         xlog(
@@ -367,17 +410,65 @@ def handle_chat_message(
         if jai_req.messages[-1].role != "user":
             jai_req.messages.append(JaiMessage(content=".", role="user"))
 
-    result = _handle_request(
-        user.xuid,
-        jai_req.models,
-        jai_req.messages,
-        settings,
-    )
+    mode = user.prefill_mode
+    provider = "RunAPI" if runapi else "Vertex AI"
+    model = jai_req.models.get("runapi" if runapi else "google")
+    if (
+        jai_req.stream
+        and model
+        and not used_think
+        and not (used_prefill and mode in (2, 3))
+    ):
+        xlog(user, f"Streaming {provider}/{model}")
+        chunks = (
+            runapi.stream(jai_req.messages, settings)
+            if runapi
+            else vertex_stream_content(user.xuid, model, jai_req.messages, settings)
+        )
+        try:
+            first = next(
+                (
+                    part
+                    for part in chunks
+                    if isinstance(part, JaiResult)
+                    or _restore_spaces(part, used_btrick).strip()
+                ),
+                JaiResult(502, f"{provider} returned an empty stream."),
+            )
+        except BaseException:
+            chunks.close()
+            raise
+        if isinstance(first, str):
+            return LiveChatReply(
+                body=lambda announcement: _stream_chat_reply(
+                    user,
+                    jai_req,
+                    response,
+                    rtype,
+                    used_btrick,
+                    first,
+                    chunks,
+                    announcement,
+                ),
+                close=chunks.close,
+            )
+        chunks.close()
+        result = first if runapi else _add_vertex_model_hint(first)
+    else:
+        result = (
+            runapi.generate(jai_req.messages, settings)
+            if runapi
+            else _handle_request(user.xuid, jai_req.models, jai_req.messages, settings)
+        )
 
     user.valid = result.metadata.api_key_valid
 
     if not result:
         track_stats(f"r.{rtype}.failed")
+
+        if runapi and result.status == 503:
+            # Keep the HTTP error and model list visible, even if commands added notices.
+            return ResponseHelper().add_error(result.error, result.status)
 
         if feedback := result.metadata.rejection_feedback:
             if feedback == "MAX_TOKENS":
@@ -453,9 +544,18 @@ def handle_chat_message(
 
     result.text = result.text.strip()
 
-    xlog(user, f"Result text is {len(result.text.split())} words")
-
     response.add_message(result.text)
+    return _finish_chat(user, jai_req, response, rtype, result)
+
+
+def _finish_chat(
+    user: UserSettings,
+    jai_req: JaiRequest,
+    response: ResponseHelper,
+    rtype: str,
+    result: JaiResult,
+) -> ResponseHelper:
+    xlog(user, f"Result text is {len(result.text.split())} words")
 
     if result.extras:
         response.add_proxy_message(result.extras)
@@ -476,3 +576,80 @@ def handle_chat_message(
 
     track_stats(f"r.{rtype}.succeeded")
     return response
+
+
+def _restore_spaces(text: str, used_btrick: bool) -> str:
+    return text.replace("\u2800", " ") if used_btrick else text
+
+
+def _sse_chunk(text: str | None = None, finish_reason: str | None = None) -> str:
+    delta = {"content": text} if text is not None else {}
+    frame = {"choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}]}
+    return f"data: {json.dumps(frame)}\n\n"
+
+
+def _stream_chat_reply(
+    user: UserSettings,
+    jai_req: JaiRequest,
+    prefix: ResponseHelper,
+    rtype: str,
+    used_btrick: bool,
+    first: str,
+    chunks: Generator[str | JaiResult],
+    announcement: Callable[[], str | None],
+) -> Iterator[str]:
+    started = False
+    is_runapi = "runapi" in jai_req.models
+    provider = "RunAPI" if is_runapi else "Vertex AI"
+    pending_space = ""
+    finish = "stop"
+    tail = ResponseHelper()
+    try:
+        for part in chain((first,), chunks):
+            if isinstance(part, str):
+                text = pending_space + _restore_spaces(part, used_btrick)
+                if not started:
+                    text = text.lstrip()
+                ready = text.rstrip()
+                pending_space = text[len(ready) :]
+                if ready:
+                    if not started and prefix.message:
+                        yield _sse_chunk(prefix.message + "\n")
+                    started = True
+                    yield _sse_chunk(ready)
+                continue
+
+            user.valid = part.metadata.api_key_valid
+            if part:
+                _finish_chat(user, jai_req, tail, rtype, part)
+                if notice := announcement():
+                    tail.add_proxy_message(f"***\n{notice}\n***")
+                reason = part.metadata.finish_reason
+                if reason == "MAX_TOKENS":
+                    finish = "length"
+                elif reason in {
+                    "SAFETY",
+                    "RECITATION",
+                    "BLOCKLIST",
+                    "PROHIBITED_CONTENT",
+                    "SPII",
+                    "MODEL_ARMOR",
+                }:
+                    finish = "content_filter"
+                xlog(user, f"{provider} stream completed")
+            else:
+                if not is_runapi:
+                    _add_vertex_model_hint(part)
+                track_stats(f"r.{rtype}.failed")
+                tail.add_proxy_message(f"Error {part.status}: {part.error}")
+                if part.extras:
+                    tail.add_proxy_message(part.extras)
+                xlog(user, f"{provider} stream failed with status {part.status}")
+            break
+    finally:
+        chunks.close()
+
+    if tail.message:
+        yield _sse_chunk("\n" + tail.message)
+    yield _sse_chunk(finish_reason=finish)
+    yield "data: [DONE]\n\n"

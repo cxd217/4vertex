@@ -65,7 +65,7 @@ def test_auto_routes_runapi_and_keeps_vertex_keys_local(
         result = client.post(
             "/", json={**BODY, "temperature": 0, "api_key": "unused"}, headers=AUTH
         )
-        assert result.json == REPLY
+        assert result.json["choices"][0]["message"]["content"].startswith("OK")
         vertex.assert_not_called()
         result = client.post(
             "/",
@@ -105,7 +105,8 @@ def test_path_mode_requires_runapi_url_and_explicit_key(
             == 401
         )
         assert not requests
-        assert client.post("/runapi/", json=BODY, headers=AUTH).json == REPLY
+        reply = client.post("/runapi/", json=BODY, headers=AUTH)
+        assert reply.json["choices"][0]["message"]["content"].startswith("OK")
         assert len(requests) == 1
         vertex.assert_called_once()
 
@@ -228,7 +229,87 @@ def test_stream_is_not_buffered_and_disconnect_releases_lock(client, upstream):
         assert client.post("/runapi/", json=BODY, headers=AUTH).status_code == 403
         result.close()
         assert stream.closed
-        assert client.post("/runapi/", json=BODY, headers=AUTH).json == REPLY
+        assert (
+            client.post("/runapi/v1/chat/completions", json=BODY, headers=AUTH).json
+            == REPLY
+        )
+
+
+def test_runapi_jai_think_settings_persist_and_off_restores_live_stream(
+    client, upstream
+):
+    calls = []
+
+    class Events(httpx2.SyncByteStream):
+        finished = False
+
+        def __iter__(self):
+            yield b'data: {"choices":[{"delta":{"reasoning_content":"native reasoning"}}]}\n\n'
+            yield b'data: {"choices":[{"delta":{"content":"Live"}}]}\n\n'
+            self.finished = True
+            yield b'data: {"choices":[{"delta":{"content":" text"},"finish_reason":"stop"}]}\n\n'
+            yield b"data: [DONE]\n\n"
+
+    events = Events()
+
+    def respond(request):
+        payload = json.loads(request.content)
+        calls.append(payload)
+        assert request.headers["authorization"] == AUTH["Authorization"]
+        assert payload["model"] == BODY["model"]
+        if payload["stream"]:
+            return httpx2.Response(
+                200, stream=events, headers={"Content-Type": "text/event-stream"}
+            )
+        assert payload["messages"][0]["role"] == "system"
+        assert "<think>" in payload["messages"][0]["content"]
+        assert payload["messages"][-1] == {"role": "user", "content": "Hello"}
+        return httpx2.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": "<think>Tagged thought</think><response>Visible</response>",
+                            "reasoning_content": "Native private reasoning",
+                        }
+                    }
+                ]
+            },
+        )
+
+    def chat(text, **kwargs):
+        return client.post(
+            "/runapi/",
+            headers=AUTH,
+            json={
+                **BODY,
+                "stream": True,
+                "messages": [{"role": "user", "content": text}],
+            },
+            **kwargs,
+        )
+
+    def visible_text(response):
+        return "".join(
+            json.loads(line[6:])["choices"][0]["delta"].get("content", "")
+            for line in response.get_data(as_text=True).splitlines()
+            if line.startswith("data: ") and line != "data: [DONE]"
+        )
+
+    with upstream(respond):
+        assert "Tagged thought" not in visible_text(
+            chat("//think on //think_text remove Hello")
+        )
+        retained = visible_text(chat("//think_text keep Hello"))
+        assert "Tagged thought" in retained
+        assert "Native private reasoning" not in retained
+        with chat("//think off Hello", buffered=False) as reply:
+            assert not events.finished
+            visible = visible_text(reply)
+            assert "Live text" in visible
+            assert "native reasoning" not in visible
+    assert [call["stream"] for call in calls] == [False, False, True]
 
 
 def test_vertex_503_has_optional_admin_model_ids(client, monkeypatch, mocker):
