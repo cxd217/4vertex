@@ -1,4 +1,4 @@
-# 4vertex · Vertex AI 专用版
+# 4vertex · Vertex AI 和可选 RunAPI 接入
 
 这是基于提供的 `GeminiForJanitors-master.zip` 升级的 4vertex。
 保留 JanitorAI 代理和新版聊天功能，使用 Google Cloud Vertex AI 服务账号认证。
@@ -13,7 +13,7 @@
 - `/health`、`/stats` 页面；Redis 用户设置和统计；冷却时间与带宽监测。
 - 兼容原来的 `PROJECT_ID`、`GOOGLE_CREDENTIALS`、`VERTEX_LOCATION`。
 
-已移除其他模型供应商、AI Studio API Key 接入、Gemini CLI OAuth/Keyring、多 Key 轮换、Colab、其他平台部署截图和自动发布容器的工作流。
+除 Vertex AI 和可选的 RunAPI 外，其他供应商、AI Studio API Key 接入、Gemini CLI OAuth/Keyring、多 Key 轮换、Colab、其他平台部署截图和自动发布容器的工作流已移除。
 Dockerfile 仍保留，方便自行部署。
 
 ## 从旧版迁移
@@ -25,7 +25,7 @@ Dockerfile 仍保留，方便自行部署。
 
 同一个 JanitorAI Key、同一个 `GFJPROXY_XUID_SECRET` 和同一个 Redis 才能保留原用户设置。
 旧配置如果包含逗号分隔的多个 Key，仅使用第一个识别用户，不再轮换。
-现在只允许每次请求指定一个 Gemini 模型。
+Vertex 每次请求只允许指定一个 Gemini 模型。
 
 ## Render 部署
 
@@ -110,6 +110,24 @@ JanitorAI 的 API Key 填相同口令；多位用户可以设置多个口令，�
 服务账号需要目标项目的 Vertex AI 使用权限，项目需要启用 Vertex AI API 和有效结算。
 不同模型的区域可用性见 [Google 官方端点文档](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/locations)。
 
+## 接入 RunAPI 和获取模型名称
+
+在 Render 的 **Environment** 设置 `GFJPROXY_RUNAPI_MODE`：
+
+| 值 | 用法 |
+| --- | --- |
+| `auto` | 原 Proxy URL 可以继续使用；单个 `sk-` Key 自动走 RunAPI，`GFJPROXY_ACCESS_KEYS` 里的现有口令仍走 Vertex。 |
+| `path` | 仅在新地址 `https://你的代理域名/runapi/` 使用 RunAPI，适合原代理已有 `sk-` 开头的旧口令。 |
+| 未设置 | 保持原来的 Vertex 代理行为。 |
+
+在 JanitorAI 的 RunAPI 配置里，**API Key** 填你在 RunAPI 创建的 `sk-` Key，**Model Name** 填目录返回的完整 ID，保留方括号、大小写和中文。真实 RunAPI Key 只填客户端；`GFJPROXY_ACCESS_KEYS` 保留原有的 Vertex 口令。启用 `auto` 前，确认原 URL 上已使用的 `sk-` 口令都在 Vertex 白名单内，或者先选 `path`。所有 RunAPI Key 和聊天内容只会转发到 `https://api.runapi.sbs/v1`；Vertex 仍使用服务端 Google 凭证。
+
+RunAPI 的聊天请求会直接转发，流式请求会转发上游 SSE；原来的横幅、`//` 聊天命令和预填充属于 Vertex 路径。每次 RunAPI 返回 503 或 404，代理都会用同一把 Key 重新查一次 `/v1/models`，逐行显示最新模型 ID。不重试生成请求；如果目录也不可用，保留原错误状态并说明。
+
+想主动查目录，在兼容 OpenAI 的客户端中设置 Base URL 为 `https://你的代理域名/runapi/v1`，填同一把 Key，再获取模型列表。也可以用 Bearer Key 调用 `GET /runapi/v1/models`。自动分流模式也支持从 `GET /v1/models` 读取对应目录。
+
+Vertex 没有在这里调用 RunAPI 的目录。管理员可选填 `GFJPROXY_VERTEX_MODELS`（逗号分隔、已在本项目和区域验证的 Gemini ID）；Vertex 503 会显示这份配置名单，Vertex 的 `/v1/models` 也会返回它。
+
 ## 本地开发（Windows PowerShell）
 
 先安装 uv 和 Python 3.13，然后在项目根目录运行：
@@ -138,8 +156,8 @@ uv run pytest
 
 没有 Redis 时，与 Redis 有关的 4 项测试会跳过；GitHub CI 会启动 Redis 来运行它们。
 测试通过模拟 Vertex 响应验证行为，不需要真实 Google 密钥。
-本版保持上游的 SSE 封装方式：先完成生成，再封装输出，并非逐 token 从 Google 转发。
-Max Tokens 继续按提供的上游版本忽略；其他高级参数由对应 `//advset_*` 命令启用。
+Vertex 路径沿用原来的 SSE 封装方式：先完成生成，再封装输出。RunAPI 路径直接转发上游 SSE。
+Vertex 的 Max Tokens 沿用原规则忽略；其他高级参数由对应 `//advset_*` 命令启用。RunAPI 直接接收受支持的 OpenAI 生成参数。
 
 ## 常见问题
 

@@ -8,6 +8,7 @@ from .logging import xlog
 from .models import JaiMessage, JaiRequest, JaiResult
 from .prefill import apply_prefill, clear_prefill
 from .providers.vertex import vertex_generate_content
+from .request_validation import configured_vertex_models
 from .statistics import track_stats
 from .utils import ResponseHelper
 from .xuiduser import XUID, UserSettings
@@ -25,7 +26,10 @@ def _handle_request(
     if not model:
         return JaiResult(400, "Please specify a Vertex AI Gemini model.")
     xlog(user, f"Using Vertex AI/{model}")
-    return vertex_generate_content(user, model, messages, settings)
+    result = vertex_generate_content(user, model, messages, settings)
+    if result.status == 503 and (ids := configured_vertex_models()):
+        result.error += "\n\nModel IDs configured by this proxy's Vertex admin:\n" + "\n".join(ids)
+    return result
 
 
 ################################################################################
