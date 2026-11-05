@@ -6,7 +6,7 @@ from os import environ as _env
 from os import scandir as _scandir
 from os.path import dirname as _dirname
 
-from .feature_guide import FEATURE_GUIDE
+from .feature_guide import BANNER_FEATURE_GUIDE
 
 ################################################################################
 
@@ -156,20 +156,20 @@ PROCESS_TIMEOUT: int = max(
 
 ################################################################################
 
-BANNER_VERSION = 37
+BANNER_VERSION = 38
 
 BANNER = rf"""***
 # **{PROXY_NAME}** ({PROXY_VERSION} {PROXY_BRANCH})
-*管理者：{PROXY_ADMIN}*
+*Admin: {PROXY_ADMIN}*
 
-此版本使用 Google Cloud Vertex AI，由服务器上的服务账号完成 Google 认证。
-JanitorAI 的 API Key 用于代理访问和识别用户，不会传给 Google。
-模型名称可填写 `gemini-2.5-flash`，也支持 `google/`、`vertex/`、`vertexai/` 前缀，以项目和区域可用的模型为准。
+This proxy uses Google Cloud Vertex AI and authenticates with server-side credentials.
+Your JanitorAI API key is used for proxy access and user identification. It is not sent to Google.
+Enter a Gemini model ID available to your project and region, such as `gemini-2.5-flash`. The `google/`, `vertex/`, and `vertexai/` prefixes are optional.
 
-{FEATURE_GUIDE}
+{BANNER_FEATURE_GUIDE}
 
-服务状态：`{PROXY_URL}/health`
-请求统计：`{PROXY_URL}/stats`
-隐藏自动横幅的地址：`{PROXY_URL}/quiet/`
+Service status: `{PROXY_URL}/health`
+Request statistics: `{PROXY_URL}/stats`
+Proxy URL without the automatic banner: `{PROXY_URL}/quiet/`
 ***
 """
