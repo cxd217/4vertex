@@ -10,9 +10,9 @@ from ..logging import xlog, xlogtime
 from ..models import JaiRequest
 from ..providers.runapi import (
     RunAPIError,
+    describe_runapi_error,
     get_runapi_models,
     open_runapi_chat,
-    runapi_error_message,
 )
 from ..providers.runapi_chat import RunAPIChat
 from ..request_validation import (
@@ -138,7 +138,11 @@ def handle(*, runapi_only: bool = False):
 
         if 200 <= response.status <= 299:
             xlogtime(user, "Processing succeeded", ref_time)
-            if not proxy_test and (announcement := storage.announcement):
+            if (
+                not proxy_test
+                and response.show_announcement
+                and (announcement := storage.announcement)
+            ):
                 response.add_proxy_message(f"***\n{announcement}\n***")
         else:
             messages = response.message.split("\n")
@@ -246,7 +250,8 @@ def _handle_runapi_chat(
                 reply = response.build_message("TEST") if proxy_test else jsonify(body)
         except RunAPIError as error:
             track_stats("r.runapi.failed")
-            return response.build_error(runapi_error_message(key, error), error.status)
+            message, _ = describe_runapi_error(key, error)
+            return response.build_error(message, error.status)
         except httpx2.TimeoutException:
             track_stats("r.runapi.failed")
             return response.build_error("RunAPI timed out.", 504)

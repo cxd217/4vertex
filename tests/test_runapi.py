@@ -122,9 +122,14 @@ def test_disabled_route_and_empty_vertex_allowlist_fail_closed(
         assert client.post("/", json=BODY, headers=AUTH).status_code == 503
 
 
-def test_models_and_every_503_use_current_catalog_with_same_key(client, upstream):
+def test_models_and_every_503_use_current_catalog_with_same_key(
+    client, upstream, mocker
+):
+    storage = LocalUserStorage()
+    storage.announcement = "Service notice that should not appear in the list"
+    mocker.patch("gfjproxy.routes.proxy.storage", storage)
     calls = []
-    model_names = iter(("[A]one", "[B假流]two", "[C]three"))
+    model_names = iter(("[A]one", "[B假流]two", "[C]three", "[D]four", "[E]five"))
 
     def reply(request):
         assert request.headers["authorization"] == AUTH["Authorization"]
@@ -150,35 +155,89 @@ def test_models_and_every_503_use_current_catalog_with_same_key(client, upstream
     with upstream(reply):
         first = client.post("/", json={**BODY, "stream": True}, headers=AUTH)
         second = client.post(
+            "/runapi/",
+            json={
+                **BODY,
+                "messages": [{"role": "user", "content": "//think this Hello"}],
+            },
+            headers=AUTH,
+        )
+        proxy_test = client.post(
             "/",
             json={**BODY, "messages": [{"role": "user", "content": "Just say TEST"}]},
             headers=AUTH,
         )
+        direct = client.post("/runapi/v1/chat/completions", json=BODY, headers=AUTH)
         models = client.get("/runapi/v1/models", headers=AUTH)
-        assert first.status_code == second.status_code == 503
-        assert first.text.endswith("\n[A]one")
-        assert second.json["error"].endswith("\n[B假流]two")
-        assert "sk-runapi-test" not in first.text + second.text + models.text
-        assert "private message" not in first.text + second.text
-        assert [m["id"] for m in models.json["data"]] == ["[C]three"]
+        assert first.status_code == second.status_code == 200
+        assert first.mimetype == "text/event-stream"
+        data, done = first.text.strip().split("\n\n")
+        assert (
+            json.loads(data.removeprefix("data: "))["choices"][0]["delta"]["content"]
+            == "[A]one"
+        )
+        assert done == "data: [DONE]"
+        assert second.json["choices"][0]["message"] == {
+            "role": "assistant",
+            "content": "[B假流]two",
+        }
+        assert proxy_test.status_code == direct.status_code == 503
+        assert proxy_test.json["error"].endswith("\n[C]three")
+        assert direct.text.endswith("\n[D]four")
+        combined = (
+            first.text + second.text + proxy_test.text + direct.text + models.text
+        )
+        assert "sk-runapi-test" not in combined
+        assert "private message" not in combined
+        assert [m["id"] for m in models.json["data"]] == ["[E]five"]
         assert models.headers["Cache-Control"] == "no-store"
     assert calls == [
         ("POST", "/v1/chat/completions"),
         ("GET", "/v1/models"),
-        ("POST", "/v1/chat/completions"),
-        ("GET", "/v1/models"),
-        ("GET", "/v1/models"),
-    ]
+    ] * 4 + [("GET", "/v1/models")]
 
 
-def test_directory_failure_does_not_replace_original_503(client, upstream):
+@pytest.mark.parametrize("directory_status", [200, 401])
+def test_missing_catalog_ids_do_not_replace_original_503(
+    client, upstream, directory_status
+):
     def reply(request):
-        return httpx2.Response(503 if request.method == "POST" else 401)
+        if request.method == "POST":
+            return httpx2.Response(503)
+        return httpx2.Response(directory_status, json={"data": []})
 
     with upstream(reply):
         result = client.post("/runapi/", json=BODY, headers=AUTH)
         assert result.status_code == 503
-        assert "Could not retrieve" in result.text
+        assert (
+            "listed no models" if directory_status == 200 else "Could not retrieve"
+        ) in result.text
+
+
+def test_model_ids_after_partial_runapi_stream_are_plain_text(client, upstream):
+    def reply(request):
+        if request.method == "GET":
+            return httpx2.Response(
+                200, json={"data": [{"id": "[B]two"}, {"id": "[A]one"}]}
+            )
+        return httpx2.Response(
+            200,
+            content=b'data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n'
+            b'data: {"error":{"code":503}}\n\n',
+            headers={"Content-Type": "text/event-stream"},
+        )
+
+    with (
+        upstream(reply),
+        client.post("/runapi/", json={**BODY, "stream": True}, headers=AUTH) as result,
+    ):
+        assert result.status_code == 200
+        text = "".join(
+            json.loads(line[6:])["choices"][0]["delta"].get("content", "")
+            for line in result.get_data(as_text=True).splitlines()
+            if line.startswith("data: ") and line != "data: [DONE]"
+        )
+        assert text == "Partial\n\n[A]one\n[B]two"
 
 
 def test_redirect_does_not_send_key_to_another_host(client, upstream):

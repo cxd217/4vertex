@@ -95,12 +95,13 @@ def get_runapi_models(key: str) -> list[str]:
     )
 
 
-def runapi_error_message(key: str, error: RunAPIError) -> str:
+def describe_runapi_error(key: str, error: RunAPIError) -> tuple[str, tuple[str, ...]]:
     message = str(error)
+    names: tuple[str, ...] = ()
     if error.status in (404, 503):
         # Always fetch the catalog anew with this request's key. Never retry generation.
         try:
-            names = get_runapi_models(key)
+            names = tuple(get_runapi_models(key))
         except RunAPIError:
             message += "\n\nCould not retrieve the RunAPI model list for this key."
         else:
@@ -108,4 +109,4 @@ def runapi_error_message(key: str, error: RunAPIError) -> str:
                 message += "\n\nRunAPI model IDs for this key:\n" + "\n".join(names)
             else:
                 message += "\n\nRunAPI listed no models for this key."
-    return message
+    return message, names

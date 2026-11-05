@@ -44,11 +44,18 @@ class ResponseHelper:
     PROXY_TAG_OPEN = "\u200b<proxy>\n"
     PROXY_TAG_CLOSE = "\n\u200b</proxy>"
 
-    def __init__(self, *, use_stream: bool = False, wrap_errors: bool = False):
+    def __init__(
+        self,
+        *,
+        use_stream: bool = False,
+        wrap_errors: bool = False,
+        show_announcement: bool = True,
+    ):
         self._messages = []
         self._status = 200
         self._use_stream = use_stream
         self._wrap_errors = wrap_errors
+        self.show_announcement = show_announcement
 
     def add_error(self, message, status_code: int):
         self._messages.append(

@@ -126,7 +126,7 @@ JanitorAI 的 API Key 填相同口令；多位用户可以设置多个口令，�
 
 开启 JAI 流式后，RunAPI 和 Vertex 的普通聊天都会边生成边输出。启用 `//think` 后，代理会先完整接收回复，再按 `//think_text keep` 或 `//think_text remove` 处理标签。关闭 `//think` 且未开启需要清理输出的预填充模式时，会恢复实时输出。
 
-每次 RunAPI 返回 503 或 404，代理都会用同一把 Key 重新查一次 `/v1/models`，逐行显示最新模型 ID。不重试生成请求；如果目录也不可用，保留原错误状态并说明。
+每次 RunAPI 返回 503 或 404，代理都会用同一把 Key 重新查一次 `/v1/models`。JAI 普通聊天会将查到的模型 ID 逐行作为普通回复发出，方便复制；连接 Test 和 OpenAI 直转路径会保留错误状态并附上列表。不重试生成请求；如果查不到模型 ID，保留原错误提示。
 
 想主动查目录，在兼容 OpenAI 的客户端中设置 Base URL 为 `https://你的代理域名/runapi/v1`，填同一把 Key，再获取模型列表。这条 `/v1` 路径直接转发 OpenAI 响应和上游 SSE，适合需要原生返回字段的客户端；JAI 代理命令使用上一段的 `/runapi/` 地址。也可以用 Bearer Key 调用 `GET /runapi/v1/models`。自动分流模式也支持从 `GET /v1/models` 读取对应目录。
 
