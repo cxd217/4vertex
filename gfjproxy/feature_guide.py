@@ -34,7 +34,7 @@ Send `//preset` again whenever you want to use it. The result depends on the mod
 
 ## Search and Dice
 
-- `//search on|off|this`: Enable Google Search on supported models. Searches can include queries and source links in the reply.
+- `//search on|off|this`: Enable Google Search on supported Vertex models. Searches can include queries and source links in the reply.
 - `//dice_char on|off|this`: Give the character a hidden d20 roll with each request.
 - `//dice_roll [count]d(faces)[(p|m)(extra)]`: Roll dice. For example, `//dice_roll 2d6` or `//dice_roll d20p3`.
 
@@ -45,18 +45,19 @@ See `//help dice` for the full dice rules.
 Enter a valid, nonzero value in JanitorAI's Generation Settings, then use the matching command to pass it to the model.
 
 - `//advset_temperature on|off|this`: Temperature.
-- `//advset_top_k on|off|this`: Top K.
+- `//advset_top_k on|off|this`: Top K (Vertex only).
 - `//advset_top_p on|off|this`: Top P.
 - `//advset_frequency_penalty on|off|this`: Frequency penalty.
 - `//advset_repetition_penalty on|off|this`: Repetition penalty, sent as presence penalty.
 
 Supported settings and ranges depend on the model. See `//help advsettings` for details.
-The proxy ignores Max Tokens. Context Size controls how much chat history JanitorAI sends.
+Max Tokens is ignored on Vertex and forwarded on RunAPI. Context Size controls how much chat history JanitorAI sends.
 
 ## Service and Access Checks
 
 The proxy supports connection tests, chat, continuation, draft enhancement, automatic summaries, and SSE responses.
-SSE sends the reply after generation finishes. Concurrent requests per user are limited; admins can configure request cooldowns and bandwidth alerts.
+When streaming is on, ordinary chat sends text as the model generates it. Connection tests, `//think`, and prefill modes 2 and 3 use buffered replies for output cleanup.
+Concurrent requests per user are limited; admins can configure request cooldowns and bandwidth alerts.
 When the model returns token usage, the proxy logs input, output, and other reported counts.
 `/health` shows service status. `/stats` shows request statistics and requires Redis.
 
@@ -111,7 +112,7 @@ FEATURE_GUIDE = """## 使用方式
 
 ## 搜索与骰子
 
-- `//search on|off|this`：启用 Google Search 工具；搜索发生时附带查询与来源链接，是否支持取决于模型。
+- `//search on|off|this`：在支持的 Vertex 模型上启用 Google Search；搜索发生时附带查询与来源链接。
 - `//dice_char on|off|this`：每次请求为角色提供一个隐藏的 d20 骰子结果。
 - `//dice_roll [count]d(faces)[(p|m)(extra)]`：主动掷骰，例如 `//dice_roll 2d6` 或 `//dice_roll d20p3`。
 
@@ -122,18 +123,19 @@ FEATURE_GUIDE = """## 使用方式
 先在 JanitorAI 的 Generation Settings 填写对应的有效非零数值，再用下面的命令决定是否传给模型。
 
 - `//advset_temperature on|off|this`：温度参数。
-- `//advset_top_k on|off|this`：Top K 参数。
+- `//advset_top_k on|off|this`：Top K 参数，仅 Vertex 支持。
 - `//advset_top_p on|off|this`：Top P 参数。
 - `//advset_frequency_penalty on|off|this`：频率惩罚。
 - `//advset_repetition_penalty on|off|this`：按 presence penalty 传递的重复惩罚。
 
 参数范围和支持情况取决于模型，详情见 `//help advsettings`。
-Max Tokens 继续沿用本代理的忽略规则；Context Size 由 JanitorAI 决定发送多少聊天历史。
+Vertex 忽略 Max Tokens，RunAPI 会转发该参数；Context Size 由 JanitorAI 决定发送多少聊天历史。
 
 ## 服务功能与访问校验
 
 支持连接 Test、普通聊天、续写、草稿增强、自动摘要，以及 SSE 格式响应。
-SSE 沿用先完成生成再封装输出的方式；同一用户有请求并发限制，管理员可以配置请求冷却和带宽告警。
+开启流式后，普通聊天会边生成边返回；连接测试、`//think` 和预填充模式 2、3 会等整段回复完成后再处理和发送。
+同一用户有请求并发限制，管理员可以配置请求冷却和带宽告警。
 如果模型返回 Token 用量，代理日志会记录输入、输出和相关用量。
 `/health` 提供服务状态；`/stats` 提供请求统计，统计数据需要 Redis。
 

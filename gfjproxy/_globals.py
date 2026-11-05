@@ -156,20 +156,34 @@ PROCESS_TIMEOUT: int = max(
 
 ################################################################################
 
-BANNER_VERSION = 38
+BANNER_VERSION = 39
 
-BANNER = rf"""***
+
+def _make_banner(connection: str, quiet_path: str) -> str:
+    return f"""***
 # **{PROXY_NAME}** ({PROXY_VERSION} {PROXY_BRANCH})
 *Admin: {PROXY_ADMIN}*
 
-This proxy uses Google Cloud Vertex AI and authenticates with server-side credentials.
-Your JanitorAI API key is used for proxy access and user identification. It is not sent to Google.
-Enter a Gemini model ID available to your project and region, such as `gemini-2.5-flash`. The `google/`, `vertex/`, and `vertexai/` prefixes are optional.
+{connection}
 
 {BANNER_FEATURE_GUIDE}
 
 Service status: `{PROXY_URL}/health`
 Request statistics: `{PROXY_URL}/stats`
-Proxy URL without the automatic banner: `{PROXY_URL}/quiet/`
+Proxy URL without the automatic banner: `{PROXY_URL}{quiet_path}`
 ***
 """
+
+
+BANNER = _make_banner(
+    "This chat uses Google Cloud Vertex AI with server-side credentials.\n"
+    "Your JanitorAI API key is used for proxy access and user identification. It is not sent to Google.\n"
+    "Enter a Gemini model ID available to your project and region. The `google/`, `vertex/`, and `vertexai/` prefixes are optional.",
+    "/quiet/",
+)
+
+RUNAPI_BANNER = _make_banner(
+    "This chat uses RunAPI with the API key supplied in JanitorAI.\n"
+    "Enter the complete model ID from your RunAPI catalog. If a model returns HTTP 503 or 404, the proxy fetches the current list for your key.",
+    "/runapi/quiet/",
+)

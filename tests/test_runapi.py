@@ -148,7 +148,7 @@ def test_models_and_every_503_use_current_catalog_with_same_key(client, upstream
         )
 
     with upstream(reply):
-        first = client.post("/", json=BODY, headers=AUTH)
+        first = client.post("/", json={**BODY, "stream": True}, headers=AUTH)
         second = client.post(
             "/",
             json={**BODY, "messages": [{"role": "user", "content": "Just say TEST"}]},

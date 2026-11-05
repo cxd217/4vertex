@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from functools import wraps
 from random import randint
 
-from ._globals import BANNER, BANNER_VERSION, PRESETS
+from ._globals import BANNER, BANNER_VERSION, PRESETS, RUNAPI_BANNER
 from .feature_guide import FEATURE_GUIDE
 from .utils import ResponseHelper
 
@@ -156,7 +156,9 @@ def aboutme(args, user, jai_req, response):
                 "top_p",
             ]
         ),
-        "This message uses the server-side Vertex AI service account.",
+        "This message uses the RunAPI key from JanitorAI."
+        if "runapi" in jai_req.models
+        else "This message uses the server-side Vertex AI service account.",
     )
     raise CommandExit()
 
@@ -164,7 +166,7 @@ def aboutme(args, user, jai_req, response):
 @command()
 def banner(args, user, jai_req, response):
     user.do_show_banner(BANNER_VERSION)
-    return response.add_proxy_message(BANNER, "***")
+    return response.add_proxy_message(RUNAPI_BANNER if "runapi" in jai_req.models else BANNER, "***")
 
 
 @command(argspec=r"[A-Za-z]+")

@@ -5,6 +5,7 @@ import pytest
 
 from gfjproxy._globals import BANNER
 from gfjproxy.app import create_app
+from gfjproxy.vertex_auth import vertex_request_auth
 from gfjproxy.xuiduser import LocalUserStorage
 
 AUTH = {"Authorization": "Bearer vertex-test"}
@@ -13,7 +14,6 @@ BODY = {
     "messages": [{"role": "user", "content": "Hello"}],
     "stream": True,
 }
-URL = "https://aiplatform.googleapis.com/v1/projects/test/locations/global/publishers/google/models/"
 
 
 def event(*parts, **candidate):
@@ -49,12 +49,21 @@ def client(monkeypatch, mocker):
 
 @pytest.fixture
 def upstream(monkeypatch):
-    def auth(model, *, stream=False):
-        method = "streamGenerateContent?alt=sse" if stream else "generateContent"
-        return f"{URL}{model}:{method}", {"Authorization": "Bearer vertex-upstream"}
+    class Credentials:
+        def before_request(self, _request, method, url, headers):
+            assert method == "POST"
+            assert url.startswith(
+                "https://aiplatform.googleapis.com/v1/projects/test/locations/global/publishers/google/models/"
+            )
+            headers["Authorization"] = "Bearer vertex-upstream"
 
-    monkeypatch.setattr("gfjproxy.providers.vertex_stream.vertex_request_auth", auth)
-    monkeypatch.setattr("gfjproxy.providers.vertex.vertex_request_auth", auth)
+    monkeypatch.setattr(
+        "gfjproxy.vertex_auth._load_credentials",
+        lambda: (Credentials(), "test", "global", None),
+    )
+    monkeypatch.setattr(
+        "gfjproxy.providers.vertex.vertex_request_auth", vertex_request_auth
+    )
 
     def install(handler):
         client = httpx2.Client(transport=httpx2.MockTransport(handler))

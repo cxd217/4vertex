@@ -157,6 +157,8 @@ def handle(*, runapi_only: bool = False):
 @proxy.route("/runapi/", methods=["POST"])
 @proxy.route("/runapi/chat/completions", methods=["POST"])
 @proxy.route("/runapi/v1/chat/completions", methods=["POST"])
+@proxy.route("/runapi/quiet/", methods=["POST"])
+@proxy.route("/runapi/quiet/chat/completions", methods=["POST"])
 def handle_runapi():
     return handle(runapi_only=True)
 

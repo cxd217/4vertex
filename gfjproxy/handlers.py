@@ -6,7 +6,7 @@ from itertools import chain
 from random import randint
 from typing import Any, cast
 
-from ._globals import BANNER, BANNER_VERSION
+from ._globals import BANNER, BANNER_VERSION, RUNAPI_BANNER
 from .commands import CommandError, CommandExit
 from .logging import xlog
 from .models import JaiMessage, JaiRequest, JaiResult
@@ -572,7 +572,7 @@ def _finish_chat(
         xlog(
             user, f"Showing{' new ' if not user.exists else ' '}user the latest banner"
         )
-        response.add_message(BANNER)
+        response.add_message(RUNAPI_BANNER if "runapi" in jai_req.models else BANNER)
 
     track_stats(f"r.{rtype}.succeeded")
     return response

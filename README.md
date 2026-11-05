@@ -122,9 +122,13 @@ JanitorAI 的 API Key 填相同口令；多位用户可以设置多个口令，�
 
 在 JanitorAI 的 RunAPI 配置里，**API Key** 填你在 RunAPI 创建的 `sk-` Key，**Model Name** 填目录返回的完整 ID，保留方括号、大小写和中文。真实 RunAPI Key 只填客户端；`GFJPROXY_ACCESS_KEYS` 保留原有的 Vertex 口令。启用 `auto` 前，确认原 URL 上已使用的 `sk-` 口令都在 Vertex 白名单内，或者先选 `path`。所有 RunAPI Key 和聊天内容只会转发到 `https://api.runapi.sbs/v1`；Vertex 仍使用服务端 Google 凭证。
 
-RunAPI 的聊天请求会直接转发，流式请求会转发上游 SSE；原来的横幅、`//` 聊天命令和预填充属于 Vertex 路径。每次 RunAPI 返回 503 或 404，代理都会用同一把 Key 重新查一次 `/v1/models`，逐行显示最新模型 ID。不重试生成请求；如果目录也不可用，保留原错误状态并说明。
+在 JAI 使用 `https://你的代理域名/runapi/`（或自动模式下的原 Proxy URL），即可用 `//think`、`//think_text`、预填充、预设、骰子、帮助等代理命令。`/runapi/quiet/` 可以隐藏自动横幅。Google Search 和 Top K 仍属于 Vertex 路径。
 
-想主动查目录，在兼容 OpenAI 的客户端中设置 Base URL 为 `https://你的代理域名/runapi/v1`，填同一把 Key，再获取模型列表。也可以用 Bearer Key 调用 `GET /runapi/v1/models`。自动分流模式也支持从 `GET /v1/models` 读取对应目录。
+开启 JAI 流式后，RunAPI 和 Vertex 的普通聊天都会边生成边输出。启用 `//think` 后，代理会先完整接收回复，再按 `//think_text keep` 或 `//think_text remove` 处理标签。关闭 `//think` 且未开启需要清理输出的预填充模式时，会恢复实时输出。
+
+每次 RunAPI 返回 503 或 404，代理都会用同一把 Key 重新查一次 `/v1/models`，逐行显示最新模型 ID。不重试生成请求；如果目录也不可用，保留原错误状态并说明。
+
+想主动查目录，在兼容 OpenAI 的客户端中设置 Base URL 为 `https://你的代理域名/runapi/v1`，填同一把 Key，再获取模型列表。这条 `/v1` 路径直接转发 OpenAI 响应和上游 SSE，适合需要原生返回字段的客户端；JAI 代理命令使用上一段的 `/runapi/` 地址。也可以用 Bearer Key 调用 `GET /runapi/v1/models`。自动分流模式也支持从 `GET /v1/models` 读取对应目录。
 
 Vertex 没有在这里调用 RunAPI 的目录。管理员可选填 `GFJPROXY_VERTEX_MODELS`（逗号分隔、已在本项目和区域验证的 Gemini ID）；Vertex 503 会显示这份配置名单，Vertex 的 `/v1/models` 也会返回它。
 
@@ -156,7 +160,7 @@ uv run pytest
 
 没有 Redis 时，与 Redis 有关的 4 项测试会跳过；GitHub CI 会启动 Redis 来运行它们。
 测试通过模拟 Vertex 响应验证行为，不需要真实 Google 密钥。
-Vertex 路径沿用原来的 SSE 封装方式：先完成生成，再封装输出。RunAPI 路径直接转发上游 SSE。
+Vertex 实时回复调用 `streamGenerateContent`，逐段转换为 JAI 的 SSE 格式。需要整段清理的 `//think`、预填充模式 2 和 3，以及连接测试仍保留缓冲处理。已经开始发送文字后，如果上游中断，错误显示在本次回复末尾。
 Vertex 的 Max Tokens 沿用原规则忽略；其他高级参数由对应 `//advset_*` 命令启用。RunAPI 直接接收受支持的 OpenAI 生成参数。
 
 ## 常见问题
