@@ -179,7 +179,6 @@ def preset(args, user, jai_req, response):
         )
 
     jai_req.use_preset = PRESETS[args]
-    jai_req.use_preset_at_end = args == "nvlstyl"
 
     return response.add_proxy_message(f'Added preset "`{args}`" to this message.')
 

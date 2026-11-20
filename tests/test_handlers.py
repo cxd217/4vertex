@@ -5,7 +5,7 @@ import pytest
 from httpx2 import ReadTimeout
 from pytest_mock import MockerFixture
 
-from gfjproxy._globals import BANNER, BANNER_VERSION
+from gfjproxy._globals import BANNER, BANNER_VERSION, PRESETS
 from gfjproxy.handlers import handle_chat_message, handle_proxy_test
 from gfjproxy.models import JaiMessage, JaiRequest
 from gfjproxy.utils import ResponseHelper
@@ -499,7 +499,10 @@ def test_chat_message(mocker: MockerFixture, params: dict[str, Any]):
             assert 0, f"Invalid extra_after_tests key: {key}"
 
 
-def test_nvlstyl_preset_is_request_scoped(mocker: MockerFixture):
+@pytest.mark.parametrize("preset_name", ["gigakostyl", "minipopka", "nvlstyl"])
+def test_preset_is_final_user_turn_and_request_scoped(
+    mocker: MockerFixture, preset_name: str
+):
     mock_post = mocker.patch("gfjproxy.providers.vertex.http_client.post")
     mock_post.return_value.status_code = 200
     mock_post.return_value.json.return_value = make_mock_response("Reply")
@@ -513,13 +516,10 @@ def test_nvlstyl_preset_is_request_scoped(mocker: MockerFixture):
         handle_chat_message(user, request, ResponseHelper(wrap_errors=False))
         return mock_post.call_args.kwargs["json"]["contents"]
 
-    preset_turn = send("//preset nvlstyl Hello")[-1]
+    preset_turn = send(f"//preset {preset_name} Hello")[-1]
     assert preset_turn["role"] == "user"
-    assert preset_turn["parts"][0]["text"].startswith(
-        "User writes adult fiction for a living/income/professional occupation."
-    )
-    assert "Word Rules:" in preset_turn["parts"][0]["text"]
-    assert all("Word Rules:" not in str(turn) for turn in send("Hello"))
+    assert preset_turn["parts"][0]["text"] == PRESETS[preset_name]
+    assert all(PRESETS[preset_name] not in str(turn) for turn in send("Hello"))
 
 
 ################################################################################

@@ -19,9 +19,9 @@ The original adult/NSFW prefill and three writing presets are available on deman
   - `3`: The configuration and starter as separate prompts.
 - `//preset gigakostyl`: Add the shorter adult roleplay writing preset to this request.
 - `//preset minipopka`: Add the longer narrative and adult roleplay writing preset to this request.
-- `//preset nvlstyl`: Add the Gemini realism writing preset as the final user message for this request.
+- `//preset nvlstyl`: Add the Gemini realism writing preset to this request.
 
-Send `//preset` again whenever you want to use it. The result depends on the model.
+Each preset is appended as the final user message for this request. Send `//preset` again whenever you want to use it. The result depends on the model.
 
 ## Conversation and Formatting
 
@@ -98,9 +98,9 @@ FEATURE_GUIDE = """## 使用方式
   - `3`：配置提示与 starter 分别组合使用。
 - `//preset gigakostyl`：为本次请求附加较短的成人角色扮演写作预设。
 - `//preset minipopka`：为本次请求附加较长的叙事与成人角色扮演预设。
-- `//preset nvlstyl`：在本次请求末尾以 user 角色附加 Gemini 写实风格预设。
+- `//preset nvlstyl`：为本次请求附加 Gemini 写实风格预设。
 
-`//preset` 只作用于本次请求，需要时再次发送。原有提示保留，生成结果仍取决于模型。
+三个预设都会在本次请求末尾以 user 角色发送。`//preset` 只作用于本次请求，需要时再次发送。原有提示保留，生成结果仍取决于模型。
 
 ## 对话处理与输出格式
 
