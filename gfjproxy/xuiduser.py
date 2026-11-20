@@ -368,14 +368,6 @@ class UserSettings:
     def use_think(self, value):
         self._data["use_think"] = bool(value)
 
-    @property
-    def use_fiction(self) -> bool:
-        return bool(self._data.get("use_fiction", False))
-
-    @use_fiction.setter
-    def use_fiction(self, value):
-        self._data["use_fiction"] = bool(value)
-
     #########################
 
     @property
