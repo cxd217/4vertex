@@ -12,6 +12,7 @@ Use `//aboutme` to see which features are enabled for you.
 The original adult/NSFW prefill and both writing presets are available on demand.
 
 - `//prefill on|off|this`: Toggle the original prefill prompt.
+- `//fiction on|off|this`: Append the adult fiction instruction as a user message at the end of the request.
 - `//prefill_mode 0|1|2|3`: Choose a mode to use when prefill is enabled.
   - `0`: The classic combination (default).
   - `1`: The interaction configuration only.
@@ -90,6 +91,7 @@ FEATURE_GUIDE = """## 使用方式
 原来的成人／NSFW 内容提示和两个写作预设都保留了，是否附加到请求由你的命令设置决定。
 
 - `//prefill on|off|this`：开启或关闭原有预填充提示。
+- `//fiction on|off|this`：在请求末尾附加一条 user 角色的成人虚构内容说明。
 - `//prefill_mode 0|1|2|3`：选择预填充模式，需配合 `//prefill` 开启使用。
   - `0`：旧版经典组合，默认模式。
   - `1`：仅使用 interaction-config 配置提示。
