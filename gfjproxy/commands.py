@@ -140,6 +140,7 @@ def aboutme(args, user, jai_req, response):
         f"\u200b- //prefill_mode {user.prefill_mode}",
         f"\u200b- //search {'on' if user.use_search else 'off'}",
         f"\u200b- //think {'on' if user.use_think else 'off'}",
+        f"\u200b- //fiction {'on' if user.use_fiction else 'off'}",
         f"\u200b- //think_text {user.think_text}",
         *(
             f"\u200b- //advset_{setting} {'on' if user.advsettings.get(setting) else 'off'}"
@@ -290,6 +291,16 @@ def think(args, user, jai_req, response):
         return response
     return response.add_proxy_message(
         f"Thinking {'enabled' if jai_req.use_think else 'disabled'}"
+        + (" (for this message only)." if args == "this" else ".")
+    )
+
+
+@command(argspec=r"off|on|this", setting="fiction")
+def fiction(args, user, jai_req, response):
+    if jai_req.quiet_commands:
+        return response
+    return response.add_proxy_message(
+        f"Fiction instruction {'enabled' if jai_req.use_fiction else 'disabled'}"
         + (" (for this message only)." if args == "this" else ".")
     )
 

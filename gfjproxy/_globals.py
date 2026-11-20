@@ -156,7 +156,7 @@ PROCESS_TIMEOUT: int = max(
 
 ################################################################################
 
-BANNER_VERSION = 39
+BANNER_VERSION = 40
 
 
 def _make_banner(connection: str, quiet_path: str) -> str:
