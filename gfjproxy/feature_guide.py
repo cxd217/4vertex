@@ -9,10 +9,9 @@ Use `//aboutme` to see which features are enabled for you.
 
 ## Prefill and Writing Presets
 
-The original adult/NSFW prefill and both writing presets are available on demand.
+The original adult/NSFW prefill and three writing presets are available on demand.
 
 - `//prefill on|off|this`: Toggle the original prefill prompt.
-- `//fiction on|off|this`: Append the adult fiction instruction as a user message at the end of the request.
 - `//prefill_mode 0|1|2|3`: Choose a mode to use when prefill is enabled.
   - `0`: The classic combination (default).
   - `1`: The interaction configuration only.
@@ -20,6 +19,7 @@ The original adult/NSFW prefill and both writing presets are available on demand
   - `3`: The configuration and starter as separate prompts.
 - `//preset gigakostyl`: Add the shorter adult roleplay writing preset to this request.
 - `//preset minipopka`: Add the longer narrative and adult roleplay writing preset to this request.
+- `//preset nvlstyl`: Add the Gemini realism writing preset as the final user message for this request.
 
 Send `//preset` again whenever you want to use it. The result depends on the model.
 
@@ -91,7 +91,6 @@ FEATURE_GUIDE = """## 使用方式
 原来的成人／NSFW 内容提示和两个写作预设都保留了，是否附加到请求由你的命令设置决定。
 
 - `//prefill on|off|this`：开启或关闭原有预填充提示。
-- `//fiction on|off|this`：在请求末尾附加一条 user 角色的成人虚构内容说明。
 - `//prefill_mode 0|1|2|3`：选择预填充模式，需配合 `//prefill` 开启使用。
   - `0`：旧版经典组合，默认模式。
   - `1`：仅使用 interaction-config 配置提示。
@@ -99,6 +98,7 @@ FEATURE_GUIDE = """## 使用方式
   - `3`：配置提示与 starter 分别组合使用。
 - `//preset gigakostyl`：为本次请求附加较短的成人角色扮演写作预设。
 - `//preset minipopka`：为本次请求附加较长的叙事与成人角色扮演预设。
+- `//preset nvlstyl`：在本次请求末尾以 user 角色附加 Gemini 写实风格预设。
 
 `//preset` 只作用于本次请求，需要时再次发送。原有提示保留，生成结果仍取决于模型。
 

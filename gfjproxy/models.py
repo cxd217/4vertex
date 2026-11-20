@@ -73,9 +73,9 @@ class JaiRequest:
     use_ooctrick: bool = False
     use_prefill: bool = False
     use_preset: str | None = None
+    use_preset_at_end: bool = False
     use_search: bool = False
     use_think: bool = False
-    use_fiction: bool = False
 
     advsettings: dict[str, bool] = field(default_factory=dict)
 
