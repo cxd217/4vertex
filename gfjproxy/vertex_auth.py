@@ -4,6 +4,7 @@ import json
 import re
 from functools import lru_cache
 from os import environ
+from random import choice
 from threading import Lock
 
 import google.auth
@@ -72,6 +73,8 @@ def vertex_request_auth(
         raise VertexConfigurationError("Invalid Vertex AI Gemini model name.")
     with _auth_lock:
         credentials, project, location, auth_request = _load_credentials()
+        if location == "random":
+            location = choice(("global", "us", "eu"))
         if location == "global":
             host = "aiplatform.googleapis.com"
         elif location in ("us", "eu"):

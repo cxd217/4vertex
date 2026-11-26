@@ -536,7 +536,7 @@ Your JanitorAI API Key is a user identifier/access token for this proxy.
 It is never sent to Google. Keep the same value to preserve your command settings.
 Ask the proxy owner for the access token if access restrictions are enabled.
 
-The server uses PROJECT_ID, GOOGLE_CREDENTIALS and VERTEX_LOCATION (default: global).
+The server uses PROJECT_ID, GOOGLE_CREDENTIALS and VERTEX_LOCATION (default: global; random selects global, us, or eu per request).
 There is no API key rotation or other provider connection in this edition.
 """
 
