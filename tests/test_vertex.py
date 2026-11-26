@@ -79,6 +79,31 @@ def test_adc_and_default_global(mocker, auth_environment):
     assert url.startswith("https://aiplatform.googleapis.com/")
     loader.assert_called_once_with(scopes=vertex_auth.SCOPES)
 
+def test_random_location_is_chosen_for_each_request(mocker, monkeypatch, auth_environment):
+    monkeypatch.setenv("VERTEX_LOCATION", "random")
+    credential = mocker.Mock()
+    mocker.patch(
+        "gfjproxy.vertex_auth.google.auth.default",
+        return_value=(credential, "adc-project"),
+    )
+    choose = mocker.patch(
+        "gfjproxy.vertex_auth.choice", side_effect=("global", "us", "eu")
+    )
+
+    global_url, _ = vertex_auth.vertex_request_auth("gemini-4-argon")
+    us_url, _ = vertex_auth.vertex_request_auth("gemini-4-argon", stream=True)
+    eu_url, _ = vertex_auth.vertex_request_auth("gemini-4-argon")
+
+    assert global_url.startswith("https://aiplatform.googleapis.com/v1/")
+    assert "/locations/global/" in global_url
+    assert us_url.startswith("https://aiplatform.us.rep.googleapis.com/v1/")
+    assert "/locations/us/" in us_url
+    assert us_url.endswith(":streamGenerateContent?alt=sse")
+    assert eu_url.startswith("https://aiplatform.eu.rep.googleapis.com/v1/")
+    assert "/locations/eu/" in eu_url
+    assert choose.call_count == 3
+    assert credential.before_request.call_count == 3
+
 
 @pytest.mark.parametrize(
     "value",
