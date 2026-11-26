@@ -53,7 +53,7 @@ Health Check Path：`/health`。Python：3.13（仓库已提供 `.python-version
 | --- | --- |
 | `PROJECT_ID` | 你的 Google Cloud 项目 ID；可继续用旧值 |
 | `GOOGLE_CREDENTIALS` | 完整的服务账号 JSON；放在部署平台环境变量中 |
-| `VERTEX_LOCATION` | 默认 `global`；也可填写模型支持的区域 |
+| `VERTEX_LOCATION` | 默认 `global`；设为 `random` 时每次请求随机选择 `global`、`us` 或 `eu`；也可填写模型支持的区域 |
 | `GFJPROXY_XUID_SECRET` | 保留旧值；新部署设置为随机长字符串 |
 | `GFJPROXY_REDIS_URL` | 可选，沿用原 Redis URL；持久化设置和统计需要它 |
 | `GFJPROXY_ACCESS_KEYS` | 可选，允许访问此代理的口令，多个用逗号分隔 |
